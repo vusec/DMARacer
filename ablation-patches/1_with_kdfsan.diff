@@ -1,0 +1,50 @@
+diff --git a/mm/kdfsan/kdfsan_policies.c b/mm/kdfsan/kdfsan_policies.c
+index 2e1868500e28..1ebca70be623 100644
+--- a/mm/kdfsan/kdfsan_policies.c
++++ b/mm/kdfsan/kdfsan_policies.c
+@@ -67,6 +67,7 @@ void kdf_policies_init(void) {
+ /* Double-fetch policies */
+ /******************************************************************************/
+ 
++#if 0
+ #ifdef CONFIG_KDFSAN_DOUBLEFETCH_POLICIES
+ 
+ /************************************************************/
+@@ -997,4 +998,9 @@ void kdf_policies_post_boot(void) {
+   kdf_report_enable();
+ }
+ 
+-#endif
+\ No newline at end of file
++#endif
++#endif
++
++void kdf_policies_init(void) { }
++void kdf_policies_post_boot(void) { }
++bool kdfsan_policies_is_df_label(dfsan_label lbl) { return false; }
+\ No newline at end of file
+diff --git a/mm/kdfsan/kdfsan_policies.h b/mm/kdfsan/kdfsan_policies.h
+index bd3ea80152d0..28dee1f0e75f 100644
+--- a/mm/kdfsan/kdfsan_policies.h
++++ b/mm/kdfsan/kdfsan_policies.h
+@@ -20,14 +20,14 @@
+ dfsan_label kdfsan_policies_get_getuser_label(void);
+ #elif defined(CONFIG_KDFSAN_DOUBLEFETCH_POLICIES)
+ #define KDFSAN_POLICY_SYSCALL_ARG 0
+-#define KDFSAN_POLICY_IO 1
+-#define KDFSAN_POLICY_LOAD 1
+-#define KDFSAN_POLICY_STORE 1
++#define KDFSAN_POLICY_IO 0
++#define KDFSAN_POLICY_LOAD 0
++#define KDFSAN_POLICY_STORE 0
+ #define KDFSAN_POLICY_COND_FWD 0
+-#define KDFSAN_POLICY_COND_BKWD 1
++#define KDFSAN_POLICY_COND_BKWD 0
+ #define KDFSAN_POLICY_AND 0
+-#define KDFSAN_POLICY_BUGON 1
+-#define KDFSAN_POLICY_PER_DOMAIN 1
++#define KDFSAN_POLICY_BUGON 0
++#define KDFSAN_POLICY_PER_DOMAIN 0
+ bool kdfsan_policies_is_df_label(dfsan_label lbl);
+ #define KDF_DOUBLEFETCH_DMA_COHERENT 1
+ #define KDF_DOUBLEFETCH_DMA_STREAMING 1

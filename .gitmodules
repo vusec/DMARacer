@@ -1,0 +1,12 @@
+[submodule "kdfsan-df-linux"]
+	path = kdfsan-df-linux
+	url = https://github.com/vusec/DMARacer-Linux
+[submodule "kdfsan-llvm-project"]
+	path = kdfsan-llvm-project
+	url = https://github.com/vusec/DMARacer-LLVM
+[submodule "kdfsan-syzkaller"]
+	path = kdfsan-syzkaller
+	url = https://github.com/vusec/DMARacer-Syzkaller
+[submodule "qemu"]
+	path = qemu
+	url = https://github.com/vusec/DMARacer-QEMU

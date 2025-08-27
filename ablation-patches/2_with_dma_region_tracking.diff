@@ -1,0 +1,138 @@
+diff --git a/mm/kdfsan/kdfsan_policies.c b/mm/kdfsan/kdfsan_policies.c
+index 2e1868500e28..0b14ef4bed94 100644
+--- a/mm/kdfsan/kdfsan_policies.c
++++ b/mm/kdfsan/kdfsan_policies.c
+@@ -111,6 +111,7 @@ enum report_type { DMA_INV, DMA_SF, DMA_DF, MMIO_SF, MMIO_DF, PMIO_SF, PMIO_DF,
+ enum instr_type { LOAD, STORE, IN, OUT, GETUSER, PUTUSER, COND, BUG };
+ #define REPORT_ID_NONE -1
+ 
++#if 0
+ /***************************************************************/
+ /* Per-domain report coverage tracking *************************/
+ 
+@@ -303,6 +304,7 @@ static void kdf_dup_add_id(enum report_type rt, enum instr_type it, depot_stack_
+   KDF_PANIC_ON(true, "Error: Could not find dup report from kdf_dup_add_id()\n");
+ }
+ 
++#endif
+ /************************************************************/
+ /* Report batching ******************************************/
+ 
+@@ -392,6 +394,7 @@ static void kdf_log_region(kdf_region * region, bool to_print, bool log_as_affec
+ /* Report printing ******************************************/
+ 
+ #define MAX_TYPE_SIZE 16
++#if 0
+ static atomic_t reports_count = ATOMIC_INIT(0); // For reports' IDs
+ 
+ static int kdf_report_next_id(void) { return atomic_inc_return(&reports_count) - 1; }
+@@ -425,6 +428,7 @@ static void kdf_it_str(const enum instr_type it, char * str, size_t size) {
+   else strcpy(str, "UNKNOWN");
+ }
+ 
++#endif
+ static void kdf_region_str(const kdf_region * region, char * region_str, size_t size) {
+   KDF_PANIC_ON(size < MAX_TYPE_SIZE, "Need a larger string for a instr type."); // Should add better size checks
+   if (region) {
+@@ -434,6 +438,7 @@ static void kdf_region_str(const kdf_region * region, char * region_str, size_t
+   }
+   else strcpy(region_str, "");
+ }
++#if 0
+ 
+ static void kdf_prev_reports_to_str(const int * prev_reports, size_t prev_report_count, char * prev_reports_str) {
+   if (prev_reports == NULL || prev_report_count == 0) { sprintf(prev_reports_str, "[]"); return; }
+@@ -681,6 +686,7 @@ static void kdf_policies_putuser(void * dst, size_t s, dfsan_label data_label, d
+   domain_fetch_addr(dst, s, fetch, true, NULL);
+ }
+ 
++#endif
+ /************************************************************/
+ /* Region helpers **********************************************/
+ 
+@@ -702,6 +708,7 @@ static kdf_region * regions_find_by_dev(struct device *dev, u64 bus_addr) {
+   return NULL;
+ }
+ 
++#if 0
+ /************************************************************/
+ /* Load/store hooks *************************************/
+ 
+@@ -782,6 +789,7 @@ void kdf_policies_store(u64 data, void *addr, uptr size, dfsan_label data_label,
+   }
+ }
+ 
++#endif
+ /************************************************************/
+ /* Region alloc/free ****************************************/
+ 
+@@ -834,7 +842,7 @@ static void kdf_policies_region_free_node(struct rcu_head *head) {
+   struct maple_tree * store_ptrs = &region->store_ptrs;
+   void *store_ptr = NULL;
+   unsigned long index = 0;
+-  mt_for_each(store_ptrs, store_ptr, index, (unsigned long) ULONG_MAX) kdf_fetch_free(store_ptr);
++  //mt_for_each(store_ptrs, store_ptr, index, (unsigned long) ULONG_MAX) kdf_fetch_free(store_ptr);
+   mtree_destroy(&region->store_ptrs);
+   mtree_destroy(&region->stores);
+ 
+@@ -939,7 +947,7 @@ void kdf_policies_iounmap(void __iomem *cpu_addr) {
+   call_rcu(&region->rcu, kdf_policies_region_free_node);
+ }
+ 
+-
++#if 0
+ /************************************************************/
+ /* PMIO in/out hooks ****************************************/
+ 
+@@ -986,6 +994,7 @@ static void kdf_policies_vuln_cond(dfsan_label label, void * rip, enum instr_typ
+ void kdf_policies_cond_bkwd(dfsan_label label, void * rip) { kdf_policies_vuln_cond(label, rip, COND); }
+ void kdf_policies_bugon(dfsan_label label, void * rip) { kdf_policies_vuln_cond(label, rip, BUG); }
+ 
++#endif
+ /************************************************************/
+ /* Initialization *******************************************/
+ 
+@@ -997,4 +1006,6 @@ void kdf_policies_post_boot(void) {
+   kdf_report_enable();
+ }
+ 
+-#endif
+\ No newline at end of file
++#endif
++
++bool kdfsan_policies_is_df_label(dfsan_label lbl) { return false; }
+\ No newline at end of file
+diff --git a/mm/kdfsan/kdfsan_policies.h b/mm/kdfsan/kdfsan_policies.h
+index bd3ea80152d0..e9ef4264a4e4 100644
+--- a/mm/kdfsan/kdfsan_policies.h
++++ b/mm/kdfsan/kdfsan_policies.h
+@@ -21,13 +21,13 @@ dfsan_label kdfsan_policies_get_getuser_label(void);
+ #elif defined(CONFIG_KDFSAN_DOUBLEFETCH_POLICIES)
+ #define KDFSAN_POLICY_SYSCALL_ARG 0
+ #define KDFSAN_POLICY_IO 1
+-#define KDFSAN_POLICY_LOAD 1
+-#define KDFSAN_POLICY_STORE 1
++#define KDFSAN_POLICY_LOAD 0
++#define KDFSAN_POLICY_STORE 0
+ #define KDFSAN_POLICY_COND_FWD 0
+-#define KDFSAN_POLICY_COND_BKWD 1
++#define KDFSAN_POLICY_COND_BKWD 0
+ #define KDFSAN_POLICY_AND 0
+-#define KDFSAN_POLICY_BUGON 1
+-#define KDFSAN_POLICY_PER_DOMAIN 1
++#define KDFSAN_POLICY_BUGON 0
++#define KDFSAN_POLICY_PER_DOMAIN 0
+ bool kdfsan_policies_is_df_label(dfsan_label lbl);
+ #define KDF_DOUBLEFETCH_DMA_COHERENT 1
+ #define KDF_DOUBLEFETCH_DMA_STREAMING 1
+@@ -63,8 +63,8 @@ void kdf_policies_dma_sync(struct device *dev, dma_addr_t addr, size_t size, boo
+ void kdf_policies_dma_sync_sg(struct device *dev, struct scatterlist *sg, int nelems, bool is_for_cpu, void * rip);
+ void kdf_policies_ioremap(resource_size_t bus_addr, void __iomem *cpu_addr, size_t size, void * rip);
+ void kdf_policies_iounmap(void __iomem *cpu_addr);
+-void kdf_policies_pmio_out(void *src, u16 port, size_t size, dfsan_label src_label, dfsan_label port_label, dfsan_label size_label, void * rip);
+-void kdf_policies_pmio_in(u16 port, size_t size, void * dest, dfsan_label port_label, dfsan_label size_label, dfsan_label dest_label, void * rip);
++static inline void kdf_policies_pmio_out(void *src, u16 port, size_t size, dfsan_label src_label, dfsan_label port_label, dfsan_label size_label, void * rip) { }
++static inline void kdf_policies_pmio_in(u16 port, size_t size, void * dest, dfsan_label port_label, dfsan_label size_label, dfsan_label dest_label, void * rip) { }
+ #else
+ static inline void kdf_policies_dma_alloc(struct device *dev, dma_addr_t bus_addr, void * cpu_addr, size_t s, bool is_streaming_dma, void * rip) { }
+ static inline void kdf_policies_dma_free(struct device *dev, dma_addr_t bus_addr) { }

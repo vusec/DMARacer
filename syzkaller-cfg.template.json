@@ -1,0 +1,22 @@
+{
+	"target": "linux/{{SYZARCH}}",
+		"http": "127.0.0.1:56741",
+		"workdir": "{{SYZKALLER_WORKDIR}}",
+		"kernel_obj": "{{KERNEL}}",
+		"image": "{{SYZKALLER_IMG}}/bullseye.img",
+		"sshkey": "{{SYZKALLER_IMG}}/bullseye.id_rsa",
+		"syzkaller": "{{SYZKALLER_PREFIX}}",
+		"reproduce": false,
+		"procs": 1,
+		"type": "qemu",
+		"vm": {
+			"count": 16,
+			"kernel": "{{KERNEL}}/arch/{{ARCH}}/boot/{{KERNEL_IMAGE}}",
+			"cpu": 1,
+			"mem": 4096,
+			"cmdline" : "rootfstype=ext4 rcu_nocbs=0 nosmp nokaslr modules=sd-mod,usb-storage,ext4 ignore_loglevel maxcpus=1 nmi_watchdog=0 net.ifnames=0 oops=0 nmi_watchdog=0 panic_on_warn=0 panic=0 biosdevname=0 earlyprintk=serial kdf_param_early_enable=1 kdf_param_whitelist=d",
+			"qemu_args": "{{SYZKALLER_QEMU_ARGS}}",
+			"logs_path": "{{SYZKALLER_LOGS_PATH}}"
+		},
+		"enable_syscalls": [ "syz_open_dev", "ioctl", "openat", "close"]
+}

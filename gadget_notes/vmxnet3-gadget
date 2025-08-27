@@ -1,0 +1,13 @@
+1F (store):
+- Store to:  ctx.sop_txd->dword[2]
+
+2F (#1):
+- Load from: ctx.l4_offset
+
+2F (#2):
+- Load from: ctx.sop_txd->dword[2]
+
+VULN_COND:
+- Load from: tq->tx_ring.base[eop_idx].txd.eop
+	- eop is in dword[3]...
+

@@ -1,0 +1,130 @@
+version: '3'
+
+dotenv: ['.env']
+
+env:
+  ROOT: '{{.PWD}}'
+  GDB: gdb
+  CROSS_COMPILE: '{{.DEBARCH}}-linux-gnu-'
+  KERNEL: '{{.ROOT}}/kdfsan-df-linux'
+  INITRAMFS: '{{.ROOT}}/out/initramfs.cpio'
+  SYZKALLER_CFG: '{{.ROOT}}/syzkaller-cfg.json'
+  SYZKALLER_CFG_TEMPLATE: '{{.ROOT}}/syzkaller-cfg.template.json'
+  SYZKALLER_IMG: '{{.ROOT}}/out/syzkaller-image'
+  SYZKALLER_LOGS_PATH: '{{.ROOT}}/out/logs'
+  SYZKALLER_QEMU_ARGS: '-enable-kvm -cpu qemu64 -rtc base=localtime,clock=vm -nic user,model=rtl8139 -nic user,model=vmxnet3 -device qemu-xhci -device qemu-xhci -device usb-kbd -chardev pipe,id=char0,path=/tmp/qemu-pipe0 -device usb-braille,chardev=char0 -device usb-ccid -device usb-mouse -chardev pipe,id=char1,path=/tmp/qemu-pipe1 -device usb-serial,chardev=char1 -device usb-tablet -display none -vnc :0,to=100'
+  LLVM_CC_NAME: 'clang'
+  LLVMPREFIX: '{{.ROOT}}/kdfsan-llvm-project/build'
+  LLVM_COMPILER_PATH: '{{.ROOT}}/kdfsan-llvm-project/build/bin'
+  CLANG: '{{.ROOT}}/kdfsan-llvm-project/build/bin/clang'
+  CC: '{{.ROOT}}/kdfsan-llvm-project/build/bin/clang'
+  CXX: '{{.ROOT}}/kdfsan-llvm-project/build/bin/clang++'
+  OPT: '{{.ROOT}}/kdfsan-llvm-project/build/bin/opt'
+  LD: '{{.ROOT}}/kdfsan-llvm-project/build/bin/ld.lld'
+  LLVM_NM: '{{.ROOT}}/kdfsan-llvm-project/build/bin/llvm-nm'
+  LLVM_AR: '{{.ROOT}}/kdfsan-llvm-project/build/bin/llvm-ar'
+  LLVM_STRIP: '{{.ROOT}}/kdfsan-llvm-project/build/bin/llvm-strip'
+  LLVM_OBJCOPY: '{{.ROOT}}/kdfsan-llvm-project/build/bin/llvm-objcopy'
+  LLVM_OBJDUMP: '{{.ROOT}}/kdfsan-llvm-project/build/bin/llvm-objdump'
+  LLVM_READELF: '{{.ROOT}}/kdfsan-llvm-project/build/bin/llvm-readelf'
+  LLVM_LINK: '{{.ROOT}}/kdfsan-llvm-project/build/bin/llvm-link'
+  LLVM_CONFIG: '{{.ROOT}}/kdfsan-llvm-project/build/bin/llvm-config'
+  GOPATH: '{{.ROOT}}/out/go'
+  SYZKALLER_PREFIX: '{{.ROOT}}/kdfsan-syzkaller'
+  SYZKALLER_BIN: '{{.ROOT}}/kdfsan-syzkaller/bin'
+  QEMU_SOURCE: '{{.ROOT}}/qemu/'
+  QEMU_BUILD: '{{.ROOT}}/qemu/build-rel'
+  QEMU_DBG_BUILD: '{{.ROOT}}/qemu/build-dbg'
+  REPORTS: '{{.ROOT}}/scripts/reports'
+  BENCHMARK_TMP: '{{.REPORTS}}/out/benchmark.out'
+  BENCHMARK_DB: '{{.REPORTS}}/out/benchmark.json'
+  BENCHMARK_TYPE_FILE: '{{.REPORTS}}/out/current_build'
+  STORAGE_BACKEND: '{{.ROOT}}/out/device-storage.bin' # for qemu
+  ENABLE_SYZKALLER: 1
+  ENABLE_KDFSAN: 1
+  ENABLE_DEBUG: 1
+  ENABLE_DEVS: 1
+  NPROC: { sh: nproc }
+
+includes:
+  initramfs:  ./taskfiles/TasksInitramfs.yml
+  kernel:     ./taskfiles/TasksKernel.yml
+  llvm:       ./taskfiles/TasksLLVM.yml
+  qemu:       ./taskfiles/TasksQemu.yml
+  reports:    ./taskfiles/TasksReports.yml
+  syzkaller:  ./taskfiles/TasksSyzkaller.yml
+
+tasks:
+  init:
+    cmds:
+      - git submodule update --init --progress
+
+  install-deps:
+    cmds:
+      - sudo apt install build-essential clang-11 lld-11 libelf-dev qemu-system-x86 bison flex golang libssl-dev cmake debootstrap python3-pexpect socat ninja-build ccache qemu-system-arm qemu-user-static gcc-aarch64-linux-gnu g++-aarch64-linux-gnu python3-pip libslirp-dev iperf
+      - sudo pip3 install vncdotool
+
+  build:
+    cmds:
+      - task initramfs:create syzkaller:create-image
+      - task qemu:config qemu:build
+      - task llvm:config llvm:build
+      - task syzkaller:build
+      - scripts/build-full.sh
+
+  rebuild-dmaracer-kernel:
+      - scripts/build-full.sh
+
+  rebuild-x86-abilist:
+    desc: recreate kdfsan's abi list for x86
+    cmds:
+      - printf "" > $KERNEL/mm/kdfsan/kdfsan_abilist_x86.txt
+      - task kernel:clean kernel:config
+      - task kernel:build || true
+      - task kernel:build &> out/abilist/out_comp || true
+      - cd out/abilist && ./parse_linker_errors.sh . && cat produced_abilist.txt >> $KERNEL/mm/kdfsan/kdfsan_abilist_x86.txt
+      - task kernel:clean kernel:build qemu:test
+
+  rebuild-arm64-abilist:
+    desc: recreate kdfsan's abi list for arm64
+    cmds:
+      - printf "# Fixes 'symbol not found' vmlinux.lds errors\nfun:kvm_get_kimage_voffset=uninstrumented\nfun:kvm_get_kimage_voffset=discard\nfun:kvm_compute_final_ctr_el0=uninstrumented\nfun:kvm_compute_final_ctr_el0=discard\nfun:nvhe_hyp_panic_handler=uninstrumented\nfun:nvhe_hyp_panic_handler=discard\n\n" > $KERNEL/mm/kdfsan/kdfsan_abilist_arm64.txt
+      - task kernel:clean kernel:config
+      - task kernel:build || true
+      - task kernel:build &> out/abilist/out_comp || true
+      - cd out/abilist && ./parse_linker_errors.sh . && cat produced_abilist.txt >> $KERNEL/mm/kdfsan/kdfsan_abilist_arm64.txt
+      - task kernel:clean kernel:build qemu:test
+
+  ablation-table:
+      - python3 scripts/ablation-tex.py
+
+  run-one-ablation-benchmark-prep:
+      - task kernel:clean kernel:config-ablation kernel:build
+
+  full-benchmark:
+      - rm -f {{.BENCHMARK_DB}}
+      - scripts/run-ablation.sh 0_baseline
+      - scripts/run-ablation.sh 1_with_kdfsan
+      - scripts/run-ablation.sh 2_with_dma_region_tracking
+      - scripts/run-ablation.sh 3_with_memory_access_monitor_load
+      - scripts/run-ablation.sh 4_with_memory_access_monitor_store
+      - scripts/run-ablation.sh 5_with_memory_access_monitor_cmp
+      - scripts/run-ablation.sh 6_with_taint_aka_dmaracer
+      - task ablation-table
+
+  case-study-vmxnet:
+      - CASE_STUDY=VMXNET3 task reports:inspect
+
+  case-study-swiotlb:
+      - CASE_STUDY=swiotlb task reports:inspect
+
+  case-study-dmapool:
+      - CASE_STUDY=dmapool task reports:inspect
+
+  show-case-studies:
+      - task show-case-study-vmxnet
+      - task show-case-study-swiotlb
+      - task show-case-study-dmapool
+
+  results-table:
+      - cd {{.REPORTS}} ;  ./main.py print_paper_tables

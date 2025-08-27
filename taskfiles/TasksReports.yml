@@ -1,0 +1,18 @@
+version: '3'
+
+tasks:
+  load-current:
+    cmds:
+      - cd {{.REPORTS}} && ./parse-exec-logs-to-json.sh out/current/all.json out/current/*.out && ./main.py delete_reports && ./main.py delete_lines && ./main.py add_reports --json_path out/current/all.json && ./main.py analyze_reports --linux_path {{.KERNEL}} --nproc {{.NPROC}} && ./main.py print_debug_tables
+
+  load-test:
+    cmds:
+      - cd {{.REPORTS}} && ./parse-exec-logs-to-json.sh out/test.json out/test.out && ./main.py delete_reports && ./main.py delete_lines && ./main.py add_reports --json_path out/test.json && ./main.py analyze_reports --linux_path {{.KERNEL}} --nproc {{.NPROC}} && ./main.py print_debug_tables
+
+  reload-current-no-delete-lines:
+    cmds:
+      - cd {{.REPORTS}} && ./main.py delete_reports && ./main.py add_reports --json_path out/current/all.json && ./main.py print_paper_tables
+
+  inspect:
+    cmds:
+      - python3 {{.REPORTS}}/main.py inspect --linux_path {{.KERNEL}}

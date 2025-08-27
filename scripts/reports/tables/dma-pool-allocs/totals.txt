@@ -1,0 +1,2 @@
+Total count for entire-kernel-dma-allocs.csv: 103
+Total count for our-kernel-dma-pool-allocs.csv: 15

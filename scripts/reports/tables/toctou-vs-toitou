@@ -1,0 +1,16 @@
+*******************************************************************
+TOCTOU bug count: 80
+TOITOU covered bug count: 94
+TOITOU non-covered bug count: 13
+Total bug count: 187
+Note: This total count does not equal the total count from the 'race conditions'
+table, because that counts both the first and second accesses; this only counts pairs
+of accesses. (Or, in the case of non-covered TOITOU bugs, a single access).
+
+TOCTOU-based vulnerability count: 5
+TOITOU-based vulnerability count: 344
+Total vulnerability count: 349
+Note: This total count does not equal the total count from the 'race conditions'
+table, because it counts a vuln. op once, whereas we can count it as a TOITOU- *and*
+a TOCTOU-based vuln.
+*******************************************************************

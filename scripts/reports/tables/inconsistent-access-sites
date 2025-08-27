@@ -1,0 +1,95 @@
+Number of unique inconsistent access sites with _this_ as the last sync op: 536
+ /home/brian/Research/fetch-detector-x86/kdfsan-df-linux/include/linux/dma-mapping.h:336:9         -- dma_map_single_attrs
+ /home/brian/Research/fetch-detector-x86/kdfsan-df-linux/drivers/net/vmxnet3/vmxnet3_drv.c:3665:24 --     (inlined by) dfs$vmxnet3_probe_device
+--> adapter->adapter_pa = dma_map_single(&adapter->pdev->dev, adapter, sizeof(struct vmxnet3_adapter), DMA_TO_DEVICE);
+==> map:DMA_TO_DEVICE
+
+Number of unique inconsistent access sites with _this_ as the last sync op: 20
+ /home/brian/Research/fetch-detector-x86/kdfsan-df-linux/drivers/ata/libata-core.c:4832:11 -- ata_sg_setup
+ /home/brian/Research/fetch-detector-x86/kdfsan-df-linux/drivers/ata/libata-core.c:5160:7  --     (inlined by) dfs$ata_qc_issue
+--> n_elem = dma_map_sg(ap->dev, qc->sg, qc->n_elem, qc->dma_dir);
+==> map:???
+
+Number of unique inconsistent access sites with _this_ as the last sync op: 8
+ /home/brian/Research/fetch-detector-x86/kdfsan-df-linux/include/linux/dma-mapping.h:336:9 -- dma_map_single_attrs
+ /home/brian/Research/fetch-detector-x86/kdfsan-df-linux/drivers/usb/core/hcd.c:1442:21    --     (inlined by) dfs$usb_hcd_map_urb_for_dma
+--> urb->setup_dma = dma_map_single(hcd->self.sysdev, urb->setup_packet, sizeof(struct usb_ctrlrequest), DMA_TO_DEVICE);
+==> map:DMA_TO_DEVICE
+
+Number of unique inconsistent access sites with _this_ as the last sync op: 7
+ /home/brian/Research/fetch-detector-x86/kdfsan-df-linux/drivers/net/ethernet/intel/e100.c:1940:3 -- dfs$e100_rx_alloc_skb
+--> dma_sync_single_for_device(&nic->pdev->dev, rx->prev->dma_addr, sizeof(struct rfd), DMA_BIDIRECTIONAL);
+==> sync:DMA_BIDIRECTIONAL
+
+Number of unique inconsistent access sites with _this_ as the last sync op: 2
+ /home/brian/Research/fetch-detector-x86/kdfsan-df-linux/include/linux/dma-mapping.h:336:9         -- dma_map_single_attrs
+ /home/brian/Research/fetch-detector-x86/kdfsan-df-linux/drivers/net/ethernet/intel/e100.c:1924:17 --     (inlined by) dfs$e100_rx_alloc_skb
+--> rx->dma_addr = dma_map_single(&nic->pdev->dev, rx->skb->data, RFD_BUF_LEN, DMA_BIDIRECTIONAL);
+==> map:DMA_BIDIRECTIONAL
+
+Number of unique inconsistent access sites with _this_ as the last sync op: 2
+ /home/brian/Research/fetch-detector-x86/kdfsan-df-linux/drivers/net/ethernet/intel/e100.c:2185:43 -- dfs$e100_rx_alloc_list
+--> dma_sync_single_for_device(&nic->pdev->dev, rx->dma_addr, sizeof(struct rfd), DMA_BIDIRECTIONAL);
+==> sync:DMA_BIDIRECTIONAL
+
+Number of unique inconsistent access sites with _this_ as the last sync op: 1
+ /home/brian/Research/fetch-detector-x86/kdfsan-df-linux/include/linux/dma-mapping.h:336:9                     -- dma_map_single_attrs
+ /home/brian/Research/fetch-detector-x86/kdfsan-df-linux/drivers/net/ethernet/intel/e1000/e1000_main.c:4612:22 --     (inlined by) dfs$e1000_alloc_rx_buffers
+--> buffer_info->dma = dma_map_single(&pdev->dev, data, adapter->rx_buffer_len, DMA_FROM_DEVICE);
+==> map:DMA_FROM_DEVICE
+
+Number of unique inconsistent access sites with _this_ as the last sync op: 1
+ /home/brian/Research/fetch-detector-x86/kdfsan-df-linux/include/linux/dma-mapping.h:336:2                  -- dma_map_single_attrs
+ /home/brian/Research/fetch-detector-x86/kdfsan-df-linux/drivers/net/ethernet/dec/tulip/tulip_core.c:633:13 --     (inlined by) tulip_init_ring
+ /home/brian/Research/fetch-detector-x86/kdfsan-df-linux/drivers/net/ethernet/dec/tulip/tulip_core.c:507:2  --     (inlined by) dfs$tulip_open
+--> mapping = dma_map_single(&tp->pdev->dev, skb->data, PKT_BUF_SZ, DMA_FROM_DEVICE);
+==> map:DMA_FROM_DEVICE
+
+Number of unique inconsistent access sites with _this_ as the last sync op: 1
+ /home/brian/Research/fetch-detector-x86/kdfsan-df-linux/drivers/net/ethernet/intel/e100.c:2107:3 -- e100_rx_clean
+ /home/brian/Research/fetch-detector-x86/kdfsan-df-linux/drivers/net/ethernet/intel/e100.c:2224:2 --     (inlined by) dfs$e100_poll
+--> dma_sync_single_for_device(&nic->pdev->dev, old_before_last_rx->dma_addr, sizeof(struct rfd), DMA_BIDIRECTIONAL);
+==> sync:DMA_BIDIRECTIONAL
+
+Number of unique inconsistent access sites with _this_ as the last sync op: 1
+ /home/brian/Research/fetch-detector-x86/kdfsan-df-linux/include/linux/dma-mapping.h:336:9         -- dma_map_single_attrs
+ /home/brian/Research/fetch-detector-x86/kdfsan-df-linux/drivers/net/ethernet/amd/pcnet32.c:2383:8 --     (inlined by) dfs$pcnet32_init_ring
+--> dma_map_single(&lp->pci_dev->dev, rx_skbuff->data, PKT_BUF_SIZE, DMA_FROM_DEVICE);
+==> map:DMA_FROM_DEVICE
+
+================================================================================
+================ TOTAL =========================================================
+
+map:DMA_TO_DEVICE = 536 + 8 = 544
+map:??? = 20
+sync:DMA_BIDIRECTIONAL = 7 + 2 + 1 = 10
+map:DMA_BIDIRECTIONAL = 2
+map:DMA_FROM_DEVICE = 1 + 1 + 1 = 3
+
+================================================================
+==== Mapped 'to the device' ====
+map:DMA_TO_DEVICE = 536 + 8 = 544
+map:DMA_BIDIRECTIONAL = 2
+==> 546 (or 10 withouut vmxnet3)
+
+==== Otherwise ====
+sync:DMA_BIDIRECTIONAL = 7 + 2 + 1 = 10
+map:DMA_FROM_DEVICE = 1 + 1 + 1 = 3
+==> 13
+
+==== Unsure ====
+map:??? = 20
+
+================================================================
+==== Last sync was a map ====
+map:DMA_TO_DEVICE = 536 + 8 = 544
+map:??? = 20
+map:DMA_BIDIRECTIONAL = 2
+map:DMA_FROM_DEVICE = 1 + 1 + 1 = 3
+==> 569 (or 33 without vmxnet3)
+
+==== Last sync was a sync ====
+sync:DMA_BIDIRECTIONAL = 7 + 2 + 1 = 10
+==> 10
+
+================================================================

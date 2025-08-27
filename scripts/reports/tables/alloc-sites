@@ -1,0 +1,12 @@
+Kernel Source            |     Entire Kernel   |         Our Kernel
+                         |            Allocs   |     Allocs Covered    Aff. Allocs Covered
+----------------------  ---  ---------------  ---  ----------------  ---------------------
+drivers/ata/             |                13   |                  2                      2
+drivers/net/             |               589   |                 48                     23
+drivers/usb/             |                58   |                 16                     11
+drivers/ (other dirs.)   |               932   |                  1                      -
+sound/core/              |                 3   |                  1                      1
+sound/ (other dirs.)     |                 7   |                  -                      -
+/ (other dirs.)          |                29   |                  -                      -
+TOTAL                    |              1631   |                 68                     37
+

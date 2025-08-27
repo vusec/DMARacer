@@ -1,0 +1,15 @@
+drivers/crypto/inside-secure/safexcel_cipher.o, 1
+drivers/crypto/inside-secure/safexcel_hash.o, 1
+drivers/dma/dw/core.o, 1
+drivers/dma/xilinx/xdma.o, 1
+drivers/gpu/drm/vmwgfx/vmwgfx_cmdbuf.o, 1
+drivers/net/ethernet/alacritech/slicoss.o, 1
+drivers/net/ethernet/intel/e100.o, 1
+drivers/net/ethernet/mellanox/mlx4/cmd.o, 1
+drivers/net/ethernet/mellanox/mlx5/core/cmd.o, 1
+drivers/net/wireless/intel/ipw2x00/ipw2200.o, 1
+drivers/usb/core/buffer.o, 1
+drivers/usb/host/ehci-hcd.o, 1
+drivers/usb/host/ohci-hcd.o, 1
+drivers/usb/host/uhci-hcd.o, 1
+drivers/usb/host/xhci-mem.o, 1

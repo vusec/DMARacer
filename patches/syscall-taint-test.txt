@@ -1,0 +1,4 @@
+To test syscall arg tainting, apply patch, then run `task qemu:qemu`, and after bootup run:
+```
+mount -t debugfs none /sys/kernel/debug ; echo 1 > /sys/kernel/debug/kdfsan/run_tests ; cat /sys/kernel/debug/kdfsan/enable ; mkdir syscall_test
+```

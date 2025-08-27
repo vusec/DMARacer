@@ -1,0 +1,173 @@
+version: '3'
+
+vars:
+  TESTCASES: out/testcases
+  TIME: { sh: date +"%Y-%m-%d-%H:%M:%S" }
+
+tasks:
+  qemu:
+    cmds:
+      - python3 scripts/expect/qemu.py --target qemu --whitelist t --interactive
+
+  config:
+    desc: configure qemu build
+    cmds:
+      - bash -x qemu/fetch-detection/config.sh {{.QEMU_BUILD}} "-O3 -g0"
+
+  config-dbg:
+    desc: configure qemu build (with debug symbols)
+    cmds:
+      - bash -x qemu/fetch-detection/config.sh {{.QEMU_DBG_BUILD}} "-O0 -g"
+
+  build:
+    desc: run qemu build
+    cmds:
+      - bash -x qemu/fetch-detection/build.sh {{.QEMU_BUILD}}
+
+  build-dbg:
+    desc: run qemu build (with debug symbols)
+    cmds:
+      - bash -x qemu/fetch-detection/build.sh {{.QEMU_DBG_BUILD}}
+
+  qemu-gdb:
+    desc: run qemu with attaching gdb
+    cmds:
+      - python3 scripts/expect/qemu.py --target qemu --whitelist t --interactive --gdb
+
+  syzkaller:
+    desc: run syzkaller image in qemu
+    cmds:
+      - python3 scripts/expect/qemu.py --whitelist t --interactive
+
+  syzkaller-gdb:
+    desc: run syzkaller image in qemu with attaching gdb
+    cmds:
+      - python3 scripts/expect/qemu.py --whitelist t --interactive --gdb
+
+  interact:
+    desc: run syzkaller image with testcases copied into the vm
+    cmds:
+      - python3 scripts/expect/qemu.py --testprogs {{.TESTCASES}} --interactive | tee out/interact-log
+
+  interact-gdb:
+    desc: run syzkaller image with testcases copied into the vm with attaching gdb
+    cmds:
+      - python3 scripts/expect/qemu.py --testprogs {{.TESTCASES}} --interactive --gdb | tee out/interact-log
+
+  benchmark-data-clear:
+    desc: clear benchmark data
+    cmds:
+      - rm -f {{.BENCHMARK_TMP}}
+      - rm -f {{.BENCHMARK_DB}}
+
+  benchmark-analyze:
+    desc: clear benchmark data
+    cmds:
+      - python3 scripts/expect/analyze-benchmark.py --input {{.BENCHMARK_TMP}} --database {{.BENCHMARK_DB}} --build-type-file {{.BENCHMARK_TYPE_FILE}}
+
+  benchmark-net:
+    desc: run benchmarks (networking throughput)
+    cmds:
+      - python3 scripts/expect/qemu.py --whitelist t --benchmark net |& tee {{.BENCHMARK_TMP}}
+      - task qemu:benchmark-analyze
+
+  benchmark-disk-write:
+    desc: run benchmarks (disk throughput)
+    cmds:
+      - python3 scripts/expect/qemu.py --whitelist t --benchmark disk-write |& tee {{.BENCHMARK_TMP}}
+      - task qemu:benchmark-analyze
+
+  benchmark-disk-search:
+    desc: run benchmarks (disk search)
+    cmds:
+      - python3 scripts/expect/qemu.py --whitelist t --benchmark disk-search |& tee {{.BENCHMARK_TMP}}
+      - task qemu:benchmark-analyze
+
+  benchmark-gpu:
+    desc: run benchmarks (gpu throughput)
+    cmds:
+      - python3 scripts/expect/qemu.py --whitelist t --benchmark gpu |& tee {{.BENCHMARK_TMP}}
+      - task qemu:benchmark-analyze
+
+  benchmark-lmbench:
+    desc: run benchmarks (lmbench)
+    cmds:
+      - python3 scripts/expect/qemu.py --whitelist t --benchmark lmbench |& tee {{.BENCHMARK_TMP}}
+      - task qemu:benchmark-analyze
+
+  benchmark:
+    desc: run all benchmarks
+    cmds:
+      - task qemu:benchmark-lmbench
+      - task qemu:benchmark-net
+      - task qemu:benchmark-disk-write
+      - task qemu:benchmark-disk-search
+      - task qemu:benchmark-gpu
+
+  test:
+    desc: run basic tests to ensure everything is working
+    cmds:
+      - cd {{.REPORTS}}/out && rm -f test.out test.json
+      - python3 scripts/expect/qemu.py --target qemu --whitelist t --tests |& tee {{.REPORTS}}/out/test.out
+
+  test-early:
+    desc: run basic tests during early boot
+    cmds:
+      - cd {{.REPORTS}}/out && rm -f test.out test.json
+      - python3 scripts/expect/qemu.py --target qemu --whitelist d --tests --early_enable |& tee {{.REPORTS}}/out/test.out
+
+  test-gdb:
+    desc: like 'test', but attaches gdb
+    cmds:
+      - python3 scripts/expect/qemu.py --target qemu --whitelist t --tests --gdb --interactive
+
+  syz-test:
+    desc: run tests on syzkaller image
+    cmds:
+      - python3 scripts/expect/qemu.py --whitelist t --tests > out/syzkaller-log
+
+  fuzz-setup:
+    cmds:
+      - cd {{.REPORTS}}/out && rm -f current && mkdir -p {{.TIME}} && ln -s {{.TIME}} current
+
+  fuzz-test:
+    desc: run the fuzzer with a few different types of devices
+    cmds:
+      - task qemu:fuzz-setup
+      - ./scripts/fuzzing/fuzz.py --fuzz_time 5 --out_dir {{.REPORTS}}/out/{{.TIME}} --target_devs i82557b '-device adlib' '-device vmware-svga' '-device usb-kbd' am53c974
+
+  fuzz-net:
+    desc: run the network fuzzer
+    cmds:
+      - task qemu:fuzz-setup
+      - ./scripts/fuzzing/fuzz.py --fuzz_time 5 --out_dir {{.REPORTS}}/out/{{.TIME}} --target_devs NET
+
+  fuzz-inputs:
+    desc: run the input device fuzzer
+    cmds:
+      - task qemu:fuzz-setup
+      - ./scripts/fuzzing/fuzz.py --fuzz_time 5 --out_dir {{.REPORTS}}/out/{{.TIME}} --target_devs INPUT
+
+  fuzz-gpu:
+    desc: run the gpu fuzzer
+    cmds:
+      - task qemu:fuzz-setup
+      - ./scripts/fuzzing/fuzz.py --fuzz_time 5 --out_dir {{.REPORTS}}/out/{{.TIME}} --target_devs GPU
+
+  fuzz-storage:
+    desc: run the storage device fuzzer
+    cmds:
+      - task qemu:fuzz-setup
+      - ./scripts/fuzzing/fuzz.py --fuzz_time 5 --out_dir {{.REPORTS}}/out/{{.TIME}} --target_devs STORAGE
+
+  fuzz-audio:
+    desc: run the storage audio fuzzer
+    cmds:
+      - task qemu:fuzz-setup
+      - ./scripts/fuzzing/fuzz.py --fuzz_time 5 --out_dir {{.REPORTS}}/out/{{.TIME}} --target_devs AUDIO
+
+  fuzz-all:
+    desc: run all the fuzzers
+    cmds:
+      - task qemu:fuzz-setup
+      - ./scripts/fuzzing/fuzz.py --fuzz_time 5 --out_dir {{.REPORTS}}/out/{{.TIME}} --target_devs ALL

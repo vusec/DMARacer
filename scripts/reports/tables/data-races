@@ -1,0 +1,38 @@
+Kernel Source                                   |     Streaming DMA                    |     Coherent DMA
+                                                |      Aff. Regions    Err. Accesses   |     Aff. Regions    Err. Accesses    Vuln. Writes    Vuln. Loops    Vuln. Asserts
+---------------------------------------------  ---  ---------------  ---------------  ---  --------------  ---------------  --------------  -------------  ---------------
+block/*                                         |                 -                -   |                -                -              32              2                1
+drivers/ata/*                                   |                 3                -   |                1                2              49              2                -
+drivers/hid/hid-core.c                          |                 -                -   |                -                1               -              -                -
+drivers/hid/usbhid/hid-core.c                   |                 -                -   |                -                -               1              -                -
+drivers/net/ethernet/amd/pcnet32.c              |                 2                -   |                3               10               -              -                -
+drivers/net/ethernet/dec/tulip/*                |                 3                -   |                1                8               -              -                -
+drivers/net/ethernet/intel/e100.c               |                 2               10   |                2               35              37              1                -
+drivers/net/ethernet/intel/e1000/e1000_main.c   |                 3                -   |                2                7               -              -                -
+drivers/net/ethernet/intel/e1000e/netdev.c      |                 -                -   |                2                8               -              -                -
+drivers/net/ethernet/realtek/8139cp.c           |                 -                -   |                1               10               -              -                -
+drivers/net/vmxnet3/*                           |                 1              455   |                5               30               -              -                -
+drivers/pci/msi/msi.c                           |                 -                4   |                -                -               -              -                -
+drivers/scsi/*                                  |                 -                -   |                -                -              46              -                1
+drivers/tty/serial/serial_core.c                |                 -                -   |                -                -               -              1                -
+drivers/usb/core/*                              |                28                -   |                3                -               -              -                -
+drivers/usb/host/*                              |                 -                8   |               16              119              18              -                -
+fs/ext4/*                                       |                 -               19   |                -                -               -              -                -
+fs/fs-writeback.c                               |                 -                -   |                -                -               2              -                -
+fs/kernfs/dir.c                                 |                 -                -   |                -                -               -              1                -
+kernel/dma/*                                    |                 -                4   |                -                -              16              3                5
+kernel/printk/printk.c                          |                 -                -   |                -                -               2              -                -
+kernel/sched/*                                  |                 -                -   |                -                -              34              5                -
+kernel/workqueue.c                              |                 -                -   |                -                -               4              -                -
+lib/*                                           |                 -                8   |                -                -              58              6                2
+mm/dmapool.c                                    |                 -                -   |                -                7               -              -                -
+net/core/*                                      |                 -               68   |                -                -               1              -                -
+net/ipv4/*                                      |                 -                -   |                -                -               9              -                1
+net/ipv6/addrconf.c                             |                 -                -   |                -                -               1              -                -
+security/keys/key.c                             |                 -                -   |                -                -               -              1                -
+sound/core/*                                    |                 -                -   |                1                -               2              -                -
+sound/hda/hdac_stream.c                         |                 -                -   |                -                1               -              -                -
+sound/pci/hda/hda_controller.c                  |                 -                -   |                -                2               -              -                -
+sound/usb/pcm.c                                 |                 -                -   |                -                1               -              -                -
+TOTAL                                           |                42              576   |               37              241             312             22               10
+

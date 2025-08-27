@@ -1,0 +1,36 @@
+version: '3'
+
+tasks:
+  create:
+    desc: create initramfs
+    cmds:
+      - rsync -r busybox/busybox-1.33.0/ out/busybox-1.33.0/
+      - task initramfs:busybox
+      - task initramfs:initramfs
+      - rm -rf out/busybox-1.33.0
+      - task initramfs:create-cpio
+
+  busybox:
+    dir: out/busybox-1.33.0
+    cmds:
+      - mkdir -pv build
+      - make O=build CROSS_COMPILE=$CROSS_COMPILE defconfig
+      - sed -i '/# CONFIG_STATIC is not set/c\CONFIG_STATIC=y' build/.config
+      - sed -i 's/CONFIG_TC=y/CONFIG_TC=n/g' build/.config
+      - sed -i 's/USE_BB_CRYPT=n/USE_BB_CRYPT=y/g' build/.config
+      - sed -i 's/m rt crypt/m rt/g' Makefile.flags
+      - cd build && make CROSS_COMPILE=$CROSS_COMPILE -j${NPROC}
+      - cd build && make CROSS_COMPILE=$CROSS_COMPILE install
+
+  initramfs:
+    dir: out/initramfs
+    cmds:
+      - mkdir -pv {bin,sbin,etc,proc,sys,usr/{bin,sbin}}
+      - cp -av ../busybox-1.33.0/build/_install/* .
+
+  create-cpio:
+    dir: out/initramfs
+    cmds:
+      - mkdir -pv {bin,dev,sbin,etc,proc,sys/kernel/debug,usr/{bin,sbin},lib,lib64,mnt/root,root}
+      - find . -print0 | cpio --null -ov --format=newc > initramfs.cpio
+      - mv initramfs.cpio $INITRAMFS

@@ -1,0 +1,1339 @@
+diff --git a/arch/x86/mm/tlb.c b/arch/x86/mm/tlb.c
+index 267acf27480a..e4cbb9fb545a 100644
+--- a/arch/x86/mm/tlb.c
++++ b/arch/x86/mm/tlb.c
+@@ -628,7 +628,7 @@ void switch_mm_irqs_off(struct mm_struct *prev, struct mm_struct *next,
+ 			cpumask_set_cpu(cpu, mm_cpumask(next));
+ 		next_tlb_gen = atomic64_read(&next->context.tlb_gen);
+ 
+-		choose_new_asid(next, next_tlb_gen, &new_asid, &need_flush);
++		choose_new_asid(next, next_tlb_gen, &new_asid, &need_flush); // --- Apparently &new_asid is tainted... But that's impossible: it's a stack address... :(
+ 
+ 		/* Let nmi_uaccess_okay() know that we're changing CR3. */
+ 		this_cpu_write(cpu_tlbstate.loaded_mm, LOADED_MM_SWITCHING);
+diff --git a/drivers/ata/libata-sff.c b/drivers/ata/libata-sff.c
+index 9d28badfe41d..deb07f4e2321 100644
+--- a/drivers/ata/libata-sff.c
++++ b/drivers/ata/libata-sff.c
+@@ -2530,7 +2530,7 @@ static void ata_bmdma_fill_sg(struct ata_queued_cmd *qc)
+ 				len = 0x10000 - offset;
+ 
+ 			prd[pi].addr = cpu_to_le32(addr);
+-			prd[pi].flags_len = cpu_to_le32(len & 0xffff);
++			prd[pi].flags_len = cpu_to_le32(len & 0xffff);  // DMA_1F:STORE
+ 
+ 			pi++;
+ 			sg_len -= len;
+@@ -2538,7 +2538,7 @@ static void ata_bmdma_fill_sg(struct ata_queued_cmd *qc)
+ 		}
+ 	}
+ 
+-	prd[pi - 1].flags_len |= cpu_to_le32(ATA_PRD_EOT);
++	prd[pi - 1].flags_len |= cpu_to_le32(ATA_PRD_EOT); // DMA_2F:LOAD -- but doesn't seems like flags_len is used *anywhere*...?
+ }
+ 
+ /**
+diff --git a/drivers/block/floppy.c b/drivers/block/floppy.c
+index 2db9b186b977..98bd3723b59e 100644
+--- a/drivers/block/floppy.c
++++ b/drivers/block/floppy.c
+@@ -1139,7 +1139,7 @@ static int output_byte(int fdc, char byte)
+ 		return -1;
+ 
+ 	if (is_ready_state(status)) {
+-		fdc_outb(byte, fdc, FD_DATA);
++		fdc_outb(byte, fdc, FD_DATA); // --> PMIO_1F:OUT
+ 		output_log[output_log_pos].data = byte;
+ 		output_log[output_log_pos].status = status;
+ 		output_log[output_log_pos].jiffies = jiffies;
+@@ -1172,7 +1172,7 @@ static int result(int fdc)
+ 			return i;
+ 		}
+ 		if (status == (STATUS_DIR | STATUS_READY | STATUS_BUSY))
+-			reply_buffer[i] = fdc_inb(fdc, FD_DATA);
++			reply_buffer[i] = fdc_inb(fdc, FD_DATA); // --> PMIO_2F:IN
+ 		else
+ 			break;
+ 	}
+@@ -1750,13 +1750,13 @@ irqreturn_t floppy_interrupt(int irq, void *dev_id)
+ 	if (inr == 0) {
+ 		int max_sensei = 4;
+ 		do {
+-			output_byte(current_fdc, FD_SENSEI);
+-			inr = result(current_fdc);
++			output_byte(current_fdc, FD_SENSEI); // --> PMIO_1F:OUT
++			inr = result(current_fdc); // --> PMIO_2F:IN
+ 			if (do_print)
+ 				print_result("sensei", inr);
+-			max_sensei--;
++			max_sensei--; // ... this limits the loop to maximum 4 iterations ==> no DOS
+ 		} while ((reply_buffer[ST0] & 0x83) != UNIT(current_drive) &&
+-			 inr == 2 && max_sensei);
++			 inr == 2 && max_sensei); // VULN_COND???
+ 	}
+ 	if (!handler) {
+ 		fdc_state[current_fdc].reset = 1;
+diff --git a/drivers/hid/hid-core.c b/drivers/hid/hid-core.c
+index 8992e3c1e769..9dda19763f87 100644
+--- a/drivers/hid/hid-core.c
++++ b/drivers/hid/hid-core.c
+@@ -1914,7 +1914,7 @@ static struct hid_report *hid_get_report(struct hid_report_enum *report_enum,
+ 
+ 	/* Device uses numbered reports, data[0] is report number */
+ 	if (report_enum->numbered)
+-		n = *data;
++		n = *data; // bj: (1,3) DMA_2F:LOAD
+ 
+ 	report = report_enum->report_id_hash[n];
+ 	if (report == NULL)
+@@ -1972,7 +1972,7 @@ int hid_report_raw_event(struct hid_device *hid, enum hid_report_type type, u8 *
+ 	u8 *cdata = data;
+ 	int ret = 0;
+ 
+-	report = hid_get_report(report_enum, data);
++	report = hid_get_report(report_enum, data); // bj: --> (1,3) DMA_2F:LOAD
+ 	if (!report)
+ 		goto out;
+ 
+@@ -2075,12 +2075,12 @@ int hid_input_report(struct hid_device *hid, enum hid_report_type type, u8 *data
+ 	}
+ 
+ 	if (hdrv && hdrv->raw_event && hid_match_report(hid, report)) {
+-		ret = hdrv->raw_event(hid, report, data, size);
++		ret = hdrv->raw_event(hid, report, data, size); // bj: --> (2) DMA_2F:LOAD (drivers/hid/wacom_sys.c:167:2)
+ 		if (ret < 0)
+ 			goto unlock;
+ 	}
+ 
+-	ret = hid_report_raw_event(hid, type, data, size, interrupt);
++	ret = hid_report_raw_event(hid, type, data, size, interrupt); // bj: --> (1,3) DMA_2F:LOAD
+ 
+ unlock:
+ 	up(&hid->driver_input_lock);
+diff --git a/drivers/hid/wacom_sys.c b/drivers/hid/wacom_sys.c
+index eb833455abd5..9732a5253d05 100644
+--- a/drivers/hid/wacom_sys.c
++++ b/drivers/hid/wacom_sys.c
+@@ -164,7 +164,7 @@ static int wacom_raw_event(struct hid_device *hdev, struct hid_report *report,
+ 	if (wacom_wac_pen_serial_enforce(hdev, report, raw_data, size))
+ 		return -1;
+ 
+-	memcpy(wacom->wacom_wac.data, raw_data, size);
++	memcpy(wacom->wacom_wac.data, raw_data, size); // bj: (2) DMA_2F:LOAD
+ 
+ 	wacom_wac_irq(&wacom->wacom_wac, size);
+ 
+diff --git a/drivers/net/ethernet/8390/lib8390.c b/drivers/net/ethernet/8390/lib8390.c
+index 84aeb8054304..d698379c824e 100644
+--- a/drivers/net/ethernet/8390/lib8390.c
++++ b/drivers/net/ethernet/8390/lib8390.c
+@@ -696,7 +696,7 @@ static void ei_receive(struct net_device *dev)
+ 			break;				/* Done for now */
+ 
+ 		current_offset = this_frame << 8;
+-		ei_get_8390_hdr(dev, &rx_frame, this_frame);
++		ei_get_8390_hdr(dev, &rx_frame, this_frame);   // -- PMIO_1F
+ 
+ 		pkt_len = rx_frame.count - sizeof(struct e8390_pkt_hdr);
+ 		pkt_stat = rx_frame.status;
+@@ -736,7 +736,7 @@ static void ei_receive(struct net_device *dev)
+ 			} else {
+ 				skb_reserve(skb, 2);	/* IP headers on 16 byte boundaries */
+ 				skb_put(skb, pkt_len);	/* Make room */
+-				ei_block_input(dev, pkt_len, skb, current_offset + sizeof(rx_frame));
++				ei_block_input(dev, pkt_len, skb, current_offset + sizeof(rx_frame)); // -- PMIO_2F
+ 				skb->protocol = eth_type_trans(skb, dev);
+ 				if (!skb_defer_rx_timestamp(skb))
+ 					netif_rx(skb);
+diff --git a/drivers/net/ethernet/8390/ne2k-pci.c b/drivers/net/ethernet/8390/ne2k-pci.c
+index 2c6bd36d2f31..65d1e04d9140 100644
+--- a/drivers/net/ethernet/8390/ne2k-pci.c
++++ b/drivers/net/ethernet/8390/ne2k-pci.c
+@@ -523,7 +523,7 @@ static void ne2k_pci_get_8390_hdr(struct net_device *dev,
+ 		insw(NE_BASE + NE_DATAPORT, hdr,
+ 		     sizeof(struct e8390_pkt_hdr) >> 1);
+ 	} else {
+-		*(u32 *)hdr = le32_to_cpu(inl(NE_BASE + NE_DATAPORT));
++		*(u32 *)hdr = le32_to_cpu(inl(NE_BASE + NE_DATAPORT)); // PMIO_1F, a:PMIO_1F
+ 		le16_to_cpus(&hdr->count);
+ 	}
+ 	/* Ack intr. */
+@@ -566,7 +566,7 @@ static void ne2k_pci_block_input(struct net_device *dev, int count,
+ 		if (count & 0x01)
+ 			buf[count-1] = inb(NE_BASE + NE_DATAPORT);
+ 	} else {
+-		insl(NE_BASE + NE_DATAPORT, buf, count >> 2);
++		insl(NE_BASE + NE_DATAPORT, buf, count >> 2); // PMIO_2F
+ 		if (count & 3) {
+ 			buf += count & ~3;
+ 			if (count & 2) {
+@@ -576,7 +576,7 @@ static void ne2k_pci_block_input(struct net_device *dev, int count,
+ 				buf = (char *)b;
+ 			}
+ 			if (count & 1)
+-				*buf = inb(NE_BASE + NE_DATAPORT);
++				*buf = inb(NE_BASE + NE_DATAPORT); // a:PMIO_2F, a:VULN_STORE... dev controls write data (via this inb) and maybe write ptr (via tainted buf, via skb->data arg????)
+ 		}
+ 	}
+ 	/* Ack intr. */
+diff --git a/drivers/net/ethernet/intel/e100.c b/drivers/net/ethernet/intel/e100.c
+index d3fdc290937f..0a3278bd61e4 100644
+--- a/drivers/net/ethernet/intel/e100.c
++++ b/drivers/net/ethernet/intel/e100.c
+@@ -413,7 +413,7 @@ struct rfd {
+ 	__le16 size;
+ };
+ 
+-struct rx {
++struct rx { /* Receive Frame Area (RFA) */
+ 	struct rx *next, *prev;
+ 	struct sk_buff *skb;
+ 	dma_addr_t dma_addr;
+@@ -820,7 +820,7 @@ static int e100_exec_cmd(struct nic *nic, u8 cmd, dma_addr_t dma_addr)
+ 
+ 	/* Previous command is accepted when SCB clears */
+ 	for (i = 0; i < E100_WAIT_SCB_TIMEOUT; i++) {
+-		if (likely(!ioread8(&nic->csr->scb.cmd_lo)))
++		if (likely(!ioread8(&nic->csr->scb.cmd_lo))) // MMIO read could cause DOS... Edit: Jk. The loop will exit when i < E100_WAIT_SCB_TIMEOUT :(
+ 			break;
+ 		cpu_relax();
+ 		if (unlikely(i > E100_WAIT_SCB_FAST))
+@@ -855,12 +855,12 @@ static int e100_exec_cb(struct nic *nic, struct sk_buff *skb,
+ 		goto err_unlock;
+ 	}
+ 
+-	cb = nic->cb_to_use;
+-	nic->cb_to_use = cb->next;
++	cb = nic->cb_to_use;            // 1: Get tainted nic->cb_to_use?
++	nic->cb_to_use = cb->next;      // 0: DMA_1F, DMA_2F on cb->next... Taint nic->cb_to_use on next invocation?
+ 	nic->cbs_avail--;
+-	cb->skb = skb;
++	cb->skb = skb;                  // 2: VULN_STORE. cb is tainted?
+ 
+-	err = cb_prepare(nic, cb, skb);
++	err = cb_prepare(nic, cb, skb); // 3: A bunch of VULN_STOREs because cb is tainted...
+ 	if (err)
+ 		goto err_unlock;
+ 
+@@ -1812,7 +1812,7 @@ static int e100_tx_clean(struct nic *nic)
+ 
+ 	/* Clean CBs marked complete */
+ 	for (cb = nic->cb_to_clean;
+-	    cb->status & cpu_to_le16(cb_complete);
++	    cb->status & cpu_to_le16(cb_complete); /* bj: DMA_2F:LOAD, VULN_COND:COND... TODO: 'and' policy clears taint here, leading to FN */
+ 	    cb = nic->cb_to_clean = cb->next) {
+ 		dma_rmb(); /* read skb after status */
+ 		netif_printk(nic, tx_done, KERN_DEBUG, nic->netdev,
+@@ -1832,7 +1832,7 @@ static int e100_tx_clean(struct nic *nic)
+ 			cb->skb = NULL;
+ 			tx_cleaned = 1;
+ 		}
+-		cb->status = 0;
++		cb->status = 0; // bj: (DMA_1F:STORE?), VULN_STORE
+ 		nic->cbs_avail++;
+ 	}
+ 
+@@ -1879,7 +1879,7 @@ static int e100_alloc_cbs(struct nic *nic)
+ 	nic->cbs_avail = 0;
+ 
+ 	nic->cbs = dma_pool_zalloc(nic->cbs_pool, GFP_KERNEL,
+-				   &nic->cbs_dma_addr);
++				   &nic->cbs_dma_addr); // bj: cbs DMA alloc
+ 	if (!nic->cbs)
+ 		return -ENOMEM;
+ 
+diff --git a/drivers/net/ethernet/intel/e1000/e1000_hw.c b/drivers/net/ethernet/intel/e1000/e1000_hw.c
+index 4542e2bc28e8..4c4ae96cf576 100644
+--- a/drivers/net/ethernet/intel/e1000/e1000_hw.c
++++ b/drivers/net/ethernet/intel/e1000/e1000_hw.c
+@@ -3669,7 +3669,7 @@ static s32 e1000_acquire_eeprom(struct e1000_hw *hw)
+ 	if (hw->mac_type > e1000_82544) {
+ 		eecd |= E1000_EECD_REQ;
+ 		ew32(EECD, eecd);
+-		eecd = er32(EECD);
++		eecd = er32(EECD); // MMIO_1F:STORE, MMIO_2F:LOAD ???
+ 		while ((!(eecd & E1000_EECD_GNT)) &&
+ 		       (i < E1000_EEPROM_GRANT_ATTEMPTS)) {
+ 			i++;
+diff --git a/drivers/net/ethernet/intel/e1000/e1000_main.c b/drivers/net/ethernet/intel/e1000/e1000_main.c
+index da6e303ad99b..2fd2da7e6e85 100644
+--- a/drivers/net/ethernet/intel/e1000/e1000_main.c
++++ b/drivers/net/ethernet/intel/e1000/e1000_main.c
+@@ -4362,7 +4362,7 @@ static bool e1000_clean_rx_irq(struct e1000_adapter *adapter,
+ 	rx_desc = E1000_RX_DESC(*rx_ring, i);
+ 	buffer_info = &rx_ring->buffer_info[i];
+ 
+-	while (rx_desc->status & E1000_RXD_STAT_DD) {
++	while (rx_desc->status & E1000_RXD_STAT_DD) { // BJ: DMA_2F... Would make a good TOCTOU case study for a mitigation (i.e., the "if (*work_done >= work_to_do)" check), which gives us a FP (although not, bc we clear taint on 'and', so don't even identify the VULN_COND...)
+ 		struct sk_buff *skb;
+ 		u8 *data;
+ 		u8 status;
+@@ -4372,7 +4372,7 @@ static bool e1000_clean_rx_irq(struct e1000_adapter *adapter,
+ 		(*work_done)++;
+ 		dma_rmb(); /* read descriptor and rx_buffer_info after status DD */
+ 
+-		status = rx_desc->status;
++		status = rx_desc->status; // bj: (3) DMA_2F:LOAD
+ 		length = le16_to_cpu(rx_desc->length);
+ 
+ 		data = buffer_info->rxbuf.data;
+@@ -4461,7 +4461,7 @@ static bool e1000_clean_rx_irq(struct e1000_adapter *adapter,
+ 		e1000_receive_skb(adapter, status, rx_desc->special, skb);
+ 
+ next_desc:
+-		rx_desc->status = 0;
++		rx_desc->status = 0; // bj: (1) DMA_1F:STORE
+ 
+ 		/* return some buffers to hardware, one at a time is too slow */
+ 		if (unlikely(cleaned_count >= E1000_RX_BUFFER_WRITE)) {
+diff --git a/drivers/net/ethernet/intel/e1000e/netdev.c b/drivers/net/ethernet/intel/e1000e/netdev.c
+index 771a3c909c45..46d6c064fe88 100644
+--- a/drivers/net/ethernet/intel/e1000e/netdev.c
++++ b/drivers/net/ethernet/intel/e1000e/netdev.c
+@@ -928,10 +928,11 @@ static bool e1000_clean_rx_irq(struct e1000_ring *rx_ring, int *work_done,
+ 
+ 	i = rx_ring->next_to_clean;
+ 	rx_desc = E1000_RX_DESC_EXT(*rx_ring, i);
+-	staterr = le32_to_cpu(rx_desc->wb.upper.status_error);
++	staterr = le32_to_cpu(rx_desc->wb.upper.status_error); // bj: (2) DMA_2F:LOAD
+ 	buffer_info = &rx_ring->buffer_info[i];
+ 
+-	while (staterr & E1000_RXD_STAT_DD) {
++	// BJ: Would make a good TOCTOU case study for a mitigation (i.e., the "if (*work_done >= work_to_do)" check), which gives us a FP (although not, bc we clear taint on 'and', so don't even identify the VULN_COND...)
++	while (staterr & E1000_RXD_STAT_DD) { // bj: I think this would be a VULN_COND if it weren't for the 'and' clearing taint...
+ 		struct sk_buff *skb;
+ 
+ 		if (*work_done >= work_to_do)
+@@ -1033,7 +1034,7 @@ static bool e1000_clean_rx_irq(struct e1000_ring *rx_ring, int *work_done,
+ 				  rx_desc->wb.upper.vlan);
+ 
+ next_desc:
+-		rx_desc->wb.upper.status_error &= cpu_to_le32(~0xFF);
++		rx_desc->wb.upper.status_error &= cpu_to_le32(~0xFF); // bj: (1) DMA_1F:STORE... (3) DMA_2F:LOAD
+ 
+ 		/* return some buffers to hardware, one at a time is too slow */
+ 		if (cleaned_count >= E1000_RX_BUFFER_WRITE) {
+diff --git a/drivers/net/ethernet/realtek/8139cp.c b/drivers/net/ethernet/realtek/8139cp.c
+index f5786d78ed23..473417bd3ff0 100644
+--- a/drivers/net/ethernet/realtek/8139cp.c
++++ b/drivers/net/ethernet/realtek/8139cp.c
+@@ -479,7 +479,7 @@ static int cp_rx_poll(struct napi_struct *napi, int budget)
+ 		skb = cp->rx_skb[rx_tail];
+ 		BUG_ON(!skb);
+ 
+-		desc = &cp->rx_ring[rx_tail];
++		desc = &cp->rx_ring[rx_tail]; // DMA_2F??? (Unclear where the DMA_1F:STORE is, but it's in this function)
+ 		status = le32_to_cpu(desc->opts1);
+ 		if (status & DescOwn)
+ 			break;
+@@ -1116,11 +1116,11 @@ static int cp_alloc_rings (struct cp_private *cp)
+ 	void *mem;
+ 	int rc;
+ 
+-	mem = dma_alloc_coherent(d, CP_RING_BYTES, &cp->ring_dma, GFP_KERNEL);
++	mem = dma_alloc_coherent(d, CP_RING_BYTES, &cp->ring_dma, GFP_KERNEL); // rx_ring DMA alloc (pt 1)
+ 	if (!mem)
+ 		return -ENOMEM;
+ 
+-	cp->rx_ring = mem;
++	cp->rx_ring = mem; // // rx_ring DMA alloc (pt 2)
+ 	cp->tx_ring = &cp->rx_ring[CP_RX_RING_SIZE];
+ 
+ 	rc = cp_init_rings(cp);
+diff --git a/drivers/net/vmxnet3/vmxnet3_defs.h b/drivers/net/vmxnet3/vmxnet3_defs.h
+index 41d6767283a6..5bbc86e5c5bf 100644
+--- a/drivers/net/vmxnet3/vmxnet3_defs.h
++++ b/drivers/net/vmxnet3/vmxnet3_defs.h
+@@ -155,7 +155,7 @@ struct Vmxnet3_TxDesc {
+ 	u32 len:14;
+ #else
+ 	u32 len:14;
+-	u32 gen:1;      /* generation bit */
++	u32 gen:1;      /* generation bit */ // bj: this bit resides in dword[2]
+ 	u32 oco:1;      /* Outer csum offload */
+ 	u32 dtype:1;    /* descriptor type */
+ 	u32 ext1:1;     /* set to 1 to indicate inner csum/tso, vmxnet3 v7 */
+@@ -173,7 +173,7 @@ struct Vmxnet3_TxDesc {
+ #else
+ 	u32 hlen:10;    /* header len */
+ 	u32 om:2;       /* offload mode */
+-	u32 eop:1;      /* End Of Packet */
++	u32 eop:1;      /* End Of Packet */ // bj: this bit resides in dword[3]
+ 	u32 cq:1;       /* completion request */
+ 	u32 ext2:1;
+ 	u32 ti:1;       /* VLAN Tag Insertion */
+@@ -188,9 +188,9 @@ struct Vmxnet3_TxDesc {
+ #define VMXNET3_OM_TSO          3
+ 
+ /* fields in TxDesc we access w/o using bit fields */
+-#define VMXNET3_TXD_EOP_SHIFT	12
+-#define VMXNET3_TXD_CQ_SHIFT	13
+-#define VMXNET3_TXD_GEN_SHIFT	14
++#define VMXNET3_TXD_EOP_SHIFT	12 // bj: in dword[3]
++#define VMXNET3_TXD_CQ_SHIFT	13 // bj: in dword[3]
++#define VMXNET3_TXD_GEN_SHIFT	14 // bj: in dword[2]
+ #define VMXNET3_TXD_EOP_DWORD_SHIFT 3
+ #define VMXNET3_TXD_GEN_DWORD_SHIFT 2
+ 
+diff --git a/drivers/net/vmxnet3/vmxnet3_drv.c b/drivers/net/vmxnet3/vmxnet3_drv.c
+index 7fa74b8b2100..a8d811bff511 100644
+--- a/drivers/net/vmxnet3/vmxnet3_drv.c
++++ b/drivers/net/vmxnet3/vmxnet3_drv.c
+@@ -360,7 +360,7 @@ vmxnet3_unmap_pkt(u32 eop_idx, struct vmxnet3_tx_queue *tq,
+ 
+ 	/* no out of order completion */
+ 	BUG_ON(tq->buf_info[eop_idx].sop_idx != tq->tx_ring.next2comp);
+-	BUG_ON(VMXNET3_TXDESC_GET_EOP(&(tq->tx_ring.base[eop_idx].txd)) != 1);
++	BUG_ON(VMXNET3_TXDESC_GET_EOP(&(tq->tx_ring.base[eop_idx].txd)) != 1); // bj: VULN_COND #1, softirq -> net_rx_action -> napi_poll -> vmxnet3_poll_rx_only -> vmxnet3_tq_tx_complete
+ 
+ 	skb = tq->buf_info[eop_idx].skb;
+ 	BUG_ON(skb == NULL);
+@@ -530,7 +530,7 @@ vmxnet3_tq_create(struct vmxnet3_tx_queue *tq,
+ 	BUG_ON(tq->tx_ring.base || tq->data_ring.base ||
+ 	       tq->comp_ring.base || tq->buf_info);
+ 
+-	tq->tx_ring.base = dma_alloc_coherent(&adapter->pdev->dev,
++	tq->tx_ring.base = dma_alloc_coherent(&adapter->pdev->dev, /* bj: Allocates 1f/2f buffer, from sendmsg syscall */
+ 			tq->tx_ring.size * sizeof(struct Vmxnet3_TxDesc),
+ 			&tq->tx_ring.basePA, GFP_KERNEL);
+ 	if (!tq->tx_ring.base) {
+@@ -717,7 +717,7 @@ vmxnet3_map_pkt(struct sk_buff *skb, struct vmxnet3_tx_ctx *ctx,
+ 		ctx->sop_txd->txd.addr = cpu_to_le64(tq->data_ring.basePA +
+ 					tq->tx_ring.next2fill *
+ 					tq->txdata_desc_size);
+-		ctx->sop_txd->dword[2] = cpu_to_le32(dw2 | ctx->copy_size);
++		ctx->sop_txd->dword[2] = cpu_to_le32(dw2 | ctx->copy_size); // bj: 1F (STORE), connect syscall
+ 		ctx->sop_txd->dword[3] = 0;
+ 
+ 		tbi = tq->buf_info + tq->tx_ring.next2fill;
+@@ -801,7 +801,7 @@ vmxnet3_map_pkt(struct sk_buff *skb, struct vmxnet3_tx_ctx *ctx,
+ 			tbi->len = buf_size;
+ 
+ 			gdesc = tq->tx_ring.base + tq->tx_ring.next2fill;
+-			BUG_ON(gdesc->txd.gen == tq->tx_ring.gen);
++			BUG_ON(gdesc->txd.gen == tq->tx_ring.gen); // bj: VULN_COND #2
+ 
+ 			gdesc->txd.addr = cpu_to_le64(tbi->dma_addr);
+ 			gdesc->dword[2] = cpu_to_le32(dw2);
+@@ -1153,7 +1153,7 @@ vmxnet3_tq_xmit(struct sk_buff *skb, struct vmxnet3_tx_queue *tq,
+ 	vmxnet3_copy_hdr(skb, tq, &ctx, adapter);
+ 
+ 	/* fill tx descs related to addr & len */
+-	if (vmxnet3_map_pkt(skb, &ctx, tq, adapter->pdev, adapter))
++	if (vmxnet3_map_pkt(skb, &ctx, tq, adapter->pdev, adapter)) // bj: calls 1f
+ 		goto unlock_drop_pkt;
+ 
+ 	/* setup the EOP desc */
+@@ -1165,7 +1165,7 @@ vmxnet3_tq_xmit(struct sk_buff *skb, struct vmxnet3_tx_queue *tq,
+ 	gdesc->dword[2] = ctx.sop_txd->dword[2];
+ 	gdesc->dword[3] = ctx.sop_txd->dword[3];
+ #else
+-	gdesc = ctx.sop_txd;
++	gdesc = ctx.sop_txd; // bj: gdesc (generic descriptor) = start of packet transmit descriptor (1f stored to its ->dword[2])
+ #endif
+ 	tx_num_deferred = le32_to_cpu(tq->shared->txNumDeferred);
+ 	if (ctx.mss) {
+@@ -1203,7 +1203,7 @@ vmxnet3_tq_xmit(struct sk_buff *skb, struct vmxnet3_tx_queue *tq,
+ 					gdesc->txd.msscof = 0;		/* Reserved */
+ 				}
+ 			} else {
+-				gdesc->txd.hlen = ctx.l4_offset;
++				gdesc->txd.hlen = ctx.l4_offset; // bj: 2F (#1)... (THIS ONE DOESN'T MAKE SENSE TO ME, BUT I DON'T THINK IT'S NECESSARY.) connect syscall (may be FP because we don't do bit-level tracking??)
+ 				gdesc->txd.om = VMXNET3_OM_CSUM;
+ 				gdesc->txd.msscof = ctx.l4_offset +
+ 						    skb->csum_offset;
+@@ -1228,7 +1228,7 @@ vmxnet3_tq_xmit(struct sk_buff *skb, struct vmxnet3_tx_queue *tq,
+ 	dma_wmb();
+ 
+ 	/* finally flips the GEN bit of the SOP desc. */
+-	gdesc->dword[2] = cpu_to_le32(le32_to_cpu(gdesc->dword[2]) ^
++	gdesc->dword[2] = cpu_to_le32(le32_to_cpu(gdesc->dword[2]) ^ /* bj: 2F (#2), connect syscall */
+ 						  VMXNET3_TXD_GEN);
+ #ifdef __BIG_ENDIAN_BITFIELD
+ 	/* Finished updating in bitfields of Tx Desc, so write them in original
+@@ -1455,7 +1455,7 @@ vmxnet3_rq_rx_complete(struct vmxnet3_rx_queue *rq,
+ 				  &rxCmdDesc);
+ 		rbi = rq->buf_info[ring_idx] + idx;
+ 
+-		BUG_ON(rxd->addr != rbi->dma_addr ||
++		BUG_ON(rxd->addr != rbi->dma_addr || /* bj1: VULN_COND:BUG, DMA_2F:LOAD */
+ 		       rxd->len != rbi->len);
+ 
+ 		if (unlikely(rcd->eop && rcd->err)) {
+@@ -1467,7 +1467,7 @@ vmxnet3_rq_rx_complete(struct vmxnet3_rx_queue *rq,
+ 			bool rxDataRingUsed;
+ 			u16 len;
+ 
+-			BUG_ON(rxd->btype != VMXNET3_RXD_BTYPE_HEAD ||
++			BUG_ON(rxd->btype != VMXNET3_RXD_BTYPE_HEAD || /* DMA_2F:LOAD */
+ 			       (rcd->rqID != rq->qid &&
+ 				rcd->rqID != rq->dataRingQid));
+ 
+@@ -1541,7 +1541,7 @@ vmxnet3_rq_rx_complete(struct vmxnet3_rx_queue *rq,
+ 				rbi->skb = new_skb;
+ 				rbi->dma_addr = new_dma_addr;
+ 				rxd->addr = cpu_to_le64(rbi->dma_addr);
+-				rxd->len = rbi->len;
++				rxd->len = rbi->len;  /* DMA_2F:LOAD? */
+ 			}
+ 
+ 			skb_record_rx_queue(ctx->skb, rq->qid);
+@@ -1731,7 +1731,7 @@ vmxnet3_rq_rx_complete(struct vmxnet3_rx_queue *rq,
+ 				WARN_ON(!rxd->addr);
+ 
+ 				/* Recv desc is ready to be used by the device */
+-				rxd->gen = ring->gen;
++				rxd->gen = ring->gen; /* bj1: DMA_1F:STORE */
+ 				vmxnet3_cmd_ring_adv_next2fill(ring);
+ 				rbi->comp_state = VMXNET3_RXD_COMP_PENDING;
+ 				num_to_alloc--;
+@@ -2864,7 +2864,7 @@ vmxnet3_activate_dev(struct vmxnet3_adapter *adapter)
+ 		goto irq_err;
+ 	}
+ 
+-	vmxnet3_setup_driver_shared(adapter);
++	vmxnet3_setup_driver_shared(adapter); // --> DMA_1F:LOAD
+ 
+ 	VMXNET3_WRITE_BAR1_REG(adapter, VMXNET3_REG_DSAL, VMXNET3_GET_ADDR_LO(
+ 			       adapter->shared_pa));
+@@ -2907,7 +2907,7 @@ vmxnet3_activate_dev(struct vmxnet3_adapter *adapter)
+ 	netif_tx_wake_all_queues(adapter->netdev);
+ 	for (i = 0; i < adapter->num_rx_queues; i++)
+ 		napi_enable(&adapter->rx_queue[i].napi);
+-	vmxnet3_enable_all_intrs(adapter);
++	vmxnet3_enable_all_intrs(adapter); // --> DMA_2F:LOAD
+ 	clear_bit(VMXNET3_STATE_BIT_QUIESCED, &adapter->state);
+ 	return 0;
+ 
+@@ -3662,7 +3662,7 @@ vmxnet3_probe_device(struct pci_dev *pdev,
+ 	}
+ 
+ 	spin_lock_init(&adapter->cmd_lock);
+-	adapter->adapter_pa = dma_map_single(&adapter->pdev->dev, adapter,
++	adapter->adapter_pa = dma_map_single(&adapter->pdev->dev, adapter, /* bj: Should we remove this??? If they want 'adapter' to be shared between the device and driver, they should use dma_alloc_coherent() above, instead of alloc_etherdev_mq()/pci_set_drvdata()/netdev_priv() */
+ 					     sizeof(struct vmxnet3_adapter),
+ 					     DMA_TO_DEVICE);
+ 	if (dma_mapping_error(&adapter->pdev->dev, adapter->adapter_pa)) {
+@@ -3835,7 +3835,7 @@ vmxnet3_probe_device(struct pci_dev *pdev,
+ 	adapter->rss_conf = dma_alloc_coherent(&adapter->pdev->dev,
+ 					       sizeof(struct UPT1_RSSConf),
+ 					       &adapter->rss_conf_pa,
+-					       GFP_KERNEL);
++					       GFP_KERNEL); // SADA: Alloc
+ 	if (adapter->rss_conf == NULL) {
+ 		err = -ENOMEM;
+ 		goto err_alloc_rss;
+diff --git a/drivers/net/vmxnet3/vmxnet3_ethtool.c b/drivers/net/vmxnet3/vmxnet3_ethtool.c
+index 18cf7c723201..636583499348 100644
+--- a/drivers/net/vmxnet3/vmxnet3_ethtool.c
++++ b/drivers/net/vmxnet3/vmxnet3_ethtool.c
+@@ -1126,7 +1126,7 @@ vmxnet3_get_rss(struct net_device *netdev, u32 *p, u8 *key, u8 *hfunc)
+ 	if (n > UPT1_RSS_MAX_IND_TABLE_SIZE)
+ 		return 0;
+ 	while (n--)
+-		p[n] = rssConf->indTable[n];
++		p[n] = rssConf->indTable[n]; // SADA: Possible buffer overflow (now mitigated by the comparison above)
+ 	return 0;
+ 
+ }
+diff --git a/drivers/pci/msi/msi.c b/drivers/pci/msi/msi.c
+index ef1d8857a51b..3ad438bd3870 100644
+--- a/drivers/pci/msi/msi.c
++++ b/drivers/pci/msi/msi.c
+@@ -223,13 +223,13 @@ static inline void pci_write_msg_msix(struct msi_desc *desc, struct msi_msg *msg
+ 
+ 	writel(msg->address_lo, base + PCI_MSIX_ENTRY_LOWER_ADDR);
+ 	writel(msg->address_hi, base + PCI_MSIX_ENTRY_UPPER_ADDR);
+-	writel(msg->data, base + PCI_MSIX_ENTRY_DATA);
++	writel(msg->data, base + PCI_MSIX_ENTRY_DATA); // MMIO_1F:STORE
+ 
+ 	if (unmasked)
+ 		pci_msix_write_vector_ctrl(desc, ctrl);
+ 
+ 	/* Ensure that the writes are visible in the device */
+-	readl(base + PCI_MSIX_ENTRY_DATA);
++	readl(base + PCI_MSIX_ENTRY_DATA); // MMIO_2F:LOAD -- what's the point of this??
+ }
+ 
+ void __pci_write_msi_msg(struct msi_desc *entry, struct msi_msg *msg)
+diff --git a/drivers/usb/core/hcd.c b/drivers/usb/core/hcd.c
+index 6af0a31ff147..b665e8e41ad8 100644
+--- a/drivers/usb/core/hcd.c
++++ b/drivers/usb/core/hcd.c
+@@ -1441,7 +1441,7 @@ int usb_hcd_map_urb_for_dma(struct usb_hcd *hcd, struct urb *urb,
+ 
+ 			urb->setup_dma = dma_map_single(
+ 					hcd->self.sysdev,
+-					urb->setup_packet,
++					urb->setup_packet, /* bri: DMA_INV:sync: urb->setup_packet is now streaming DMA, owned by the device */
+ 					sizeof(struct usb_ctrlrequest),
+ 					DMA_TO_DEVICE);
+ 			if (dma_mapping_error(hcd->self.sysdev,
+@@ -1555,9 +1555,9 @@ int usb_hcd_submit_urb (struct urb *urb, gfp_t mem_flags)
+ 	if (is_root_hub(urb->dev)) {
+ 		status = rh_urb_enqueue(hcd, urb);
+ 	} else {
+-		status = map_urb_for_dma(hcd, urb, mem_flags);
++		status = map_urb_for_dma(hcd, urb, mem_flags); /* ---> bri: DMA_INV:sync: urb->setup_packet is now streaming DMA, owned by the device */
+ 		if (likely(status == 0)) {
+-			status = hcd->driver->urb_enqueue(hcd, urb, mem_flags);
++			status = hcd->driver->urb_enqueue(hcd, urb, mem_flags); /* ---> bri: DMA_INV:load: accesses to urb->setup_packet!!! */
+ 			if (unlikely(status))
+ 				unmap_urb_for_dma(hcd, urb);
+ 		}
+diff --git a/drivers/usb/core/message.c b/drivers/usb/core/message.c
+index 1da8e7ff3983..05caf72a1e29 100644
+--- a/drivers/usb/core/message.c
++++ b/drivers/usb/core/message.c
+@@ -1582,7 +1582,7 @@ int usb_set_interface(struct usb_device *dev, int interface, int alternate)
+ 	if (dev->quirks & USB_QUIRK_NO_SET_INTF)
+ 		ret = -EPIPE;
+ 	else
+-		ret = usb_control_msg_send(dev, 0,
++		ret = usb_control_msg_send(dev, 0, // --> DMA_1F
+ 					   USB_REQ_SET_INTERFACE,
+ 					   USB_RECIP_INTERFACE, alternate,
+ 					   interface, NULL, 0, 5000,
+@@ -1654,7 +1654,7 @@ int usb_set_interface(struct usb_device *dev, int interface, int alternate)
+ 	usb_enable_interface(dev, iface, true);
+ 	if (device_is_registered(&iface->dev)) {
+ 		usb_create_sysfs_intf_files(iface);
+-		create_intf_ep_devs(iface);
++		create_intf_ep_devs(iface); // --> DMA_2F
+ 	}
+ 	return 0;
+ }
+diff --git a/drivers/usb/host/uhci-hcd.c b/drivers/usb/host/uhci-hcd.c
+index fd2408b553cf..837f7a0b1a24 100644
+--- a/drivers/usb/host/uhci-hcd.c
++++ b/drivers/usb/host/uhci-hcd.c
+@@ -629,7 +629,7 @@ static int uhci_start(struct usb_hcd *hcd)
+ 	}
+ 
+ 	for (i = 0; i < UHCI_NUM_SKELQH; i++) {
+-		uhci->skelqh[i] = uhci_alloc_qh(uhci, NULL, NULL);
++		uhci->skelqh[i] = uhci_alloc_qh(uhci, NULL, NULL); // --> DMA_1F, DMA_2F
+ 		if (!uhci->skelqh[i]) {
+ 			dev_err(uhci_dev(uhci), "unable to allocate QH\n");
+ 			goto err_alloc_skelqh;
+@@ -640,9 +640,9 @@ static int uhci_start(struct usb_hcd *hcd)
+ 	 * 8 Interrupt queues; link all higher int queues to int1 = async
+ 	 */
+ 	for (i = SKEL_ISO + 1; i < SKEL_ASYNC; ++i)
+-		uhci->skelqh[i]->link = LINK_TO_QH(uhci, uhci->skel_async_qh);
+-	uhci->skel_async_qh->link = UHCI_PTR_TERM(uhci);
+-	uhci->skel_term_qh->link = LINK_TO_QH(uhci, uhci->skel_term_qh);
++		uhci->skelqh[i]->link = LINK_TO_QH(uhci, uhci->skel_async_qh); // VULN_STORE with controllable data? (via ptr uhci->skelqh[i]?)
++	uhci->skel_async_qh->link = UHCI_PTR_TERM(uhci);  // VULN_STORE (via uhci->skelqh[9]?)
++	uhci->skel_term_qh->link = LINK_TO_QH(uhci, uhci->skel_term_qh);  // VULN_STORE (via uhci->skelqh[10]?)
+ 
+ 	/* This dummy TD is to work around a bug in Intel PIIX controllers */
+ 	uhci_fill_td(uhci, uhci->term_td, 0, uhci_explen(0) |
+diff --git a/drivers/usb/host/uhci-q.c b/drivers/usb/host/uhci-q.c
+index 35fcb826152c..cf7167a4e1f4 100644
+--- a/drivers/usb/host/uhci-q.c
++++ b/drivers/usb/host/uhci-q.c
+@@ -35,7 +35,7 @@ static void uhci_set_next_interrupt(struct uhci_hcd *uhci)
+ 
+ static inline void uhci_clear_next_interrupt(struct uhci_hcd *uhci)
+ {
+-	uhci->term_td->status &= ~cpu_to_hc32(uhci, TD_CTRL_IOC);
++	uhci->term_td->status &= ~cpu_to_hc32(uhci, TD_CTRL_IOC); // bj: TD: DMA_1F:LOAD, DMA_2F:LOAD
+ }
+ 
+ 
+@@ -64,9 +64,9 @@ static void uhci_fsbr_off(struct uhci_hcd *uhci)
+ 	/* Remove the link from the last async QH to the terminating
+ 	 * skeleton QH. */
+ 	uhci->fsbr_is_on = 0;
+-	lqh = list_entry(uhci->skel_async_qh->node.prev,
++	lqh = list_entry(uhci->skel_async_qh->node.prev, /* DMA_2F:LOAD */
+ 			struct uhci_qh, node);
+-	lqh->link = UHCI_PTR_TERM(uhci);
++	lqh->link = UHCI_PTR_TERM(uhci); /* VULN_STORE */
+ }
+ 
+ static void uhci_add_fsbr(struct uhci_hcd *uhci, struct urb *urb)
+@@ -108,7 +108,7 @@ static struct uhci_td *uhci_alloc_td(struct uhci_hcd *uhci)
+ 	dma_addr_t dma_handle;
+ 	struct uhci_td *td;
+ 
+-	td = dma_pool_alloc(uhci->td_pool, GFP_ATOMIC, &dma_handle);
++	td = dma_pool_alloc(uhci->td_pool, GFP_ATOMIC, &dma_handle); // BJ: td alloc
+ 	if (!td)
+ 		return NULL;
+ 
+@@ -248,17 +248,17 @@ static struct uhci_qh *uhci_alloc_qh(struct uhci_hcd *uhci,
+ 	dma_addr_t dma_handle;
+ 	struct uhci_qh *qh;
+ 
+-	qh = dma_pool_zalloc(uhci->qh_pool, GFP_ATOMIC, &dma_handle);
++	qh = dma_pool_zalloc(uhci->qh_pool, GFP_ATOMIC, &dma_handle); // DMA alloc
+ 	if (!qh)
+ 		return NULL;
+ 
+-	qh->dma_handle = dma_handle;
++	qh->dma_handle = dma_handle; // VULN_STORE: qh AND dma_handle (outputs of dma_pool_zalloc()) are both controllable ==> arbitrary write-what-where
+ 
+ 	qh->element = UHCI_PTR_TERM(uhci);
+ 	qh->link = UHCI_PTR_TERM(uhci);
+ 
+ 	INIT_LIST_HEAD(&qh->queue);
+-	INIT_LIST_HEAD(&qh->node);
++	INIT_LIST_HEAD(&qh->node); // DMA_1F:STORE
+ 
+ 	if (udev) {		/* Normal QH */
+ 		qh->type = usb_endpoint_type(&hep->desc);
+@@ -1753,7 +1753,7 @@ static void uhci_scan_schedule(struct uhci_hcd *uhci)
+ 	uhci->need_rescan = 0;
+ 	uhci->fsbr_is_wanted = 0;
+ 
+-	uhci_clear_next_interrupt(uhci);
++	uhci_clear_next_interrupt(uhci); // --> DMA_1F:LOAD
+ 	uhci_get_current_frame_number(uhci);
+ 	uhci->cur_iso_frame = uhci->frame_number;
+ 
+@@ -1787,7 +1787,7 @@ static void uhci_scan_schedule(struct uhci_hcd *uhci)
+ 	}
+ 
+ 	if (list_empty(&uhci->skel_unlink_qh->node))
+-		uhci_clear_next_interrupt(uhci);
++		uhci_clear_next_interrupt(uhci); // --> DMA_2F:LOAD
+ 	else
+ 		uhci_set_next_interrupt(uhci);
+ }
+diff --git a/drivers/usb/host/xhci-ring.c b/drivers/usb/host/xhci-ring.c
+index 3e5dc0723a8f..e8a657be92f6 100644
+--- a/drivers/usb/host/xhci-ring.c
++++ b/drivers/usb/host/xhci-ring.c
+@@ -1098,14 +1098,14 @@ static void xhci_handle_cmd_stop_ep(struct xhci_hcd *xhci, int slot_id,
+ 	struct xhci_command *command;
+ 	int err;
+ 
+-	if (unlikely(TRB_TO_SUSPEND_PORT(le32_to_cpu(trb->generic.field[3])))) {
++	if (unlikely(TRB_TO_SUSPEND_PORT(le32_to_cpu(trb->generic.field[3])))) { /* bj: DMA_2F:LOAD */
+ 		if (!xhci->devs[slot_id])
+ 			xhci_warn(xhci, "Stop endpoint command completion for disabled slot %u\n",
+ 				  slot_id);
+ 		return;
+ 	}
+ 
+-	ep_index = TRB_TO_EP_INDEX(le32_to_cpu(trb->generic.field[3]));
++	ep_index = TRB_TO_EP_INDEX(le32_to_cpu(trb->generic.field[3])); /* bj: DMA_2F:LOAD?? */
+ 	ep = xhci_get_virt_ep(xhci, slot_id, ep_index);
+ 	if (!ep)
+ 		return;
+@@ -1165,8 +1165,8 @@ static void xhci_handle_cmd_stop_ep(struct xhci_hcd *xhci, int slot_id,
+ 	}
+ 
+ 	/* will queue a set TR deq if stopped on a cancelled, uncleared TD */
+-	xhci_invalidate_cancelled_tds(ep);
+-	ep->ep_state &= ~EP_STOP_CMD_PENDING;
++	xhci_invalidate_cancelled_tds(ep); /* bj: --> VULN_COND:COND */
++	ep->ep_state &= ~EP_STOP_CMD_PENDING; /* bj: VULN_STORE */
+ 
+ 	/* Otherwise ring the doorbell(s) to restart queued transfers */
+ 	xhci_giveback_invalidated_tds(ep);
+@@ -1726,7 +1726,7 @@ static void handle_cmd_completion(struct xhci_hcd *xhci,
+ 		}
+ 	}
+ 
+-	cmd_type = TRB_FIELD_TO_TYPE(le32_to_cpu(cmd_trb->generic.field[3]));
++	cmd_type = TRB_FIELD_TO_TYPE(le32_to_cpu(cmd_trb->generic.field[3])); /* bj: DMA_2F:LOAD */
+ 	switch (cmd_type) {
+ 	case TRB_ENABLE_SLOT:
+ 		xhci_handle_cmd_enable_slot(xhci, slot_id, cmd, cmd_comp_code);
+@@ -1747,7 +1747,7 @@ static void handle_cmd_completion(struct xhci_hcd *xhci,
+ 		WARN_ON(slot_id != TRB_TO_SLOT_ID(
+ 				le32_to_cpu(cmd_trb->generic.field[3])));
+ 		if (!cmd->completion)
+-			xhci_handle_cmd_stop_ep(xhci, slot_id, cmd_trb,
++			xhci_handle_cmd_stop_ep(xhci, slot_id, cmd_trb, /* bj: --> DMA_2F:LOAD, VULN_COND:COND */
+ 						cmd_comp_code);
+ 		break;
+ 	case TRB_SET_DEQ:
+@@ -2556,7 +2556,7 @@ static int handle_tx_event(struct xhci_hcd *xhci,
+ 	int td_num = 0;
+ 	bool handling_skipped_tds = false;
+ 
+-	slot_id = TRB_TO_SLOT_ID(le32_to_cpu(event->flags));
++	slot_id = TRB_TO_SLOT_ID(le32_to_cpu(event->flags)); // bj: DMA_2F
+ 	ep_index = TRB_TO_EP_ID(le32_to_cpu(event->flags)) - 1;
+ 	trb_comp_code = GET_COMP_CODE(le32_to_cpu(event->transfer_len));
+ 	ep_trb_dma = le64_to_cpu(event->buffer);
+@@ -2870,7 +2870,7 @@ static int handle_tx_event(struct xhci_hcd *xhci,
+ 			goto cleanup;
+ 		}
+ 
+-		td->status = status;
++		td->status = status; // bj: VULN_STORE?
+ 
+ 		/* update the urb's actual_length and give back to the core */
+ 		if (usb_endpoint_xfer_control(&td->urb->ep->desc))
+@@ -3752,7 +3752,7 @@ int xhci_queue_ctrl_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
+ 
+ 	/* Queue setup TRB - see section 6.4.1.2.1 */
+ 	/* FIXME better way to translate setup_packet into two u32 fields? */
+-	setup = (struct usb_ctrlrequest *) urb->setup_packet;
++	setup = (struct usb_ctrlrequest *) urb->setup_packet; /* bri: DMA_INV:load: any load depending on setup will load from urb->setup_packet, i.e., DMA owned by the device!!! */
+ 	field = 0;
+ 	field |= TRB_IDT | TRB_TYPE(TRB_SETUP);
+ 	if (start_cycle == 0)
+@@ -3761,7 +3761,7 @@ int xhci_queue_ctrl_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
+ 	/* xHCI 1.0/1.1 6.4.1.2.1: Transfer Type field */
+ 	if ((xhci->hci_version >= 0x100) || (xhci->quirks & XHCI_MTK_HOST)) {
+ 		if (urb->transfer_buffer_length > 0) {
+-			if (setup->bRequestType & USB_DIR_IN)
++			if (setup->bRequestType & USB_DIR_IN) /* bri: DMA_INV:load!!! */
+ 				field |= TRB_TX_TYPE(TRB_DATA_IN);
+ 			else
+ 				field |= TRB_TX_TYPE(TRB_DATA_OUT);
+@@ -3769,8 +3769,8 @@ int xhci_queue_ctrl_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
+ 	}
+ 
+ 	queue_trb(xhci, ep_ring, true,
+-		  setup->bRequestType | setup->bRequest << 8 | le16_to_cpu(setup->wValue) << 16,
+-		  le16_to_cpu(setup->wIndex) | le16_to_cpu(setup->wLength) << 16,
++		  setup->bRequestType | setup->bRequest << 8 | le16_to_cpu(setup->wValue) << 16, /* bri: DMA_INV:load x 3!!! */
++		  le16_to_cpu(setup->wIndex) | le16_to_cpu(setup->wLength) << 16, /* bri: DMA_INV:load x 2!!! */
+ 		  TRB_LEN(8) | TRB_INTR_TARGET(0),
+ 		  /* Immediate data in pointer */
+ 		  field);
+@@ -3802,7 +3802,7 @@ int xhci_queue_ctrl_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
+ 		length_field = TRB_LEN(urb->transfer_buffer_length) |
+ 				TRB_TD_SIZE(remainder) |
+ 				TRB_INTR_TARGET(0);
+-		if (setup->bRequestType & USB_DIR_IN)
++		if (setup->bRequestType & USB_DIR_IN) /* bri: DMA_INV:load!!! */
+ 			field |= TRB_DIR_IN;
+ 		queue_trb(xhci, ep_ring, true,
+ 				lower_32_bits(addr),
+@@ -3817,7 +3817,7 @@ int xhci_queue_ctrl_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
+ 
+ 	/* Queue status TRB - see Table 7 and sections 4.11.2.2 and 6.4.1.2.3 */
+ 	/* If the device sent data, the status stage is an OUT transfer */
+-	if (urb->transfer_buffer_length > 0 && setup->bRequestType & USB_DIR_IN)
++	if (urb->transfer_buffer_length > 0 && setup->bRequestType & USB_DIR_IN) /* bri: DMA_INV:load!!! */
+ 		field = 0;
+ 	else
+ 		field = TRB_DIR_IN;
+diff --git a/drivers/usb/host/xhci.c b/drivers/usb/host/xhci.c
+index fae994f679d4..c5bcc709bae0 100644
+--- a/drivers/usb/host/xhci.c
++++ b/drivers/usb/host/xhci.c
+@@ -4178,11 +4178,11 @@ static int xhci_setup_device(struct usb_hcd *hcd, struct usb_device *udev,
+ 	ctrl_ctx->add_flags = 0;
+ 	ctrl_ctx->drop_flags = 0;
+ 	slot_ctx = xhci_get_slot_ctx(xhci, virt_dev->out_ctx);
+-	udev->devaddr = (u8)(le32_to_cpu(slot_ctx->dev_state) & DEV_ADDR_MASK);
++	udev->devaddr = (u8)(le32_to_cpu(slot_ctx->dev_state) & DEV_ADDR_MASK); // DMA_1F
+ 
+ 	xhci_dbg_trace(xhci, trace_xhci_dbg_address,
+ 		       "Internal device address = %d",
+-		       le32_to_cpu(slot_ctx->dev_state) & DEV_ADDR_MASK);
++		       le32_to_cpu(slot_ctx->dev_state) & DEV_ADDR_MASK); // DMA_2F
+ out:
+ 	mutex_unlock(&xhci->mutex);
+ 	if (command) {
+diff --git a/fs/exec.c b/fs/exec.c
+index 1a827d55ba94..c1d4ab0769c4 100644
+--- a/fs/exec.c
++++ b/fs/exec.c
+@@ -534,7 +534,7 @@ static int copy_strings(int argc, struct user_arg_ptr argv,
+ 		unsigned long pos;
+ 
+ 		ret = -EFAULT;
+-		str = get_user_arg_ptr(argv, argc);
++		str = get_user_arg_ptr(argv, argc); // --> USER_2F
+ 		if (IS_ERR(str))
+ 			goto out;
+ 
+@@ -562,7 +562,7 @@ static int copy_strings(int argc, struct user_arg_ptr argv,
+ 				ret = -ERESTARTNOHAND;
+ 				goto out;
+ 			}
+-			cond_resched();
++			cond_resched(); // --> VULN_STORE?
+ 
+ 			offset = pos % PAGE_SIZE;
+ 			if (offset == 0)
+@@ -1925,7 +1925,7 @@ static int do_execveat_common(int fd, struct filename *filename,
+ 		goto out_free;
+ 	bprm->argc = retval;
+ 
+-	retval = count(envp, MAX_ARG_STRINGS);
++	retval = count(envp, MAX_ARG_STRINGS); // --> USER_1F
+ 	if (retval < 0)
+ 		goto out_free;
+ 	bprm->envc = retval;
+@@ -1939,7 +1939,7 @@ static int do_execveat_common(int fd, struct filename *filename,
+ 		goto out_free;
+ 	bprm->exec = bprm->p;
+ 
+-	retval = copy_strings(bprm->envc, envp, bprm);
++	retval = copy_strings(bprm->envc, envp, bprm); // --> USER_2F, VULN_STORE
+ 	if (retval < 0)
+ 		goto out_free;
+ 
+@@ -1960,7 +1960,7 @@ static int do_execveat_common(int fd, struct filename *filename,
+ 		bprm->argc = 1;
+ 	}
+ 
+-	retval = bprm_execve(bprm, fd, filename, flags);
++	retval = bprm_execve(bprm, fd, filename, flags); // --> VULN_STORE?
+ out_free:
+ 	free_bprm(bprm);
+ 
+diff --git a/fs/namei.c b/fs/namei.c
+index 567ee547492b..89a5e1f45706 100644
+--- a/fs/namei.c
++++ b/fs/namei.c
+@@ -2478,8 +2478,8 @@ static int path_lookupat(struct nameidata *nd, unsigned flags, struct path *path
+ 			s = ERR_PTR(err);
+ 	}
+ 
+-	while (!(err = link_path_walk(s, nd)) &&
+-	       (s = lookup_last(nd)) != NULL)
++	while (!(err = link_path_walk(s, nd)) && /* USER_1F */
++	       (s = lookup_last(nd)) != NULL) /* --> USER_2F, VULN_STORE */
+ 		;
+ 	if (!err && unlikely(nd->flags & LOOKUP_MOUNTPOINT)) {
+ 		err = handle_lookup_down(nd);
+diff --git a/include/sound/hda_register.h b/include/sound/hda_register.h
+index 9c7872c0ca79..db82ae65b847 100644
+--- a/include/sound/hda_register.h
++++ b/include/sound/hda_register.h
+@@ -358,7 +358,7 @@ snd_hdac_stream_get_pos_lpib(struct hdac_stream *stream)
+ static inline unsigned int
+ snd_hdac_stream_get_pos_posbuf(struct hdac_stream *stream)
+ {
+-	return le32_to_cpu(*stream->posbuf);
++	return le32_to_cpu(*stream->posbuf); /* bj: DMA_2F:LOAD */
+ }
+ 
+ #endif /* __SOUND_HDA_REGISTER_H */
+diff --git a/kernel/events/core.c b/kernel/events/core.c
+index 78ae7b6f90fd..f3581c0ec3d1 100644
+--- a/kernel/events/core.c
++++ b/kernel/events/core.c
+@@ -12045,7 +12045,7 @@ static int perf_copy_attr(struct perf_event_attr __user *uattr,
+ 	/* Zero the full structure, so that a short copy will be nice. */
+ 	memset(attr, 0, sizeof(*attr));
+ 
+-	ret = get_user(size, &uattr->size);
++	ret = get_user(size, &uattr->size); // bj: USER_1F
+ 	if (ret)
+ 		return ret;
+ 
+@@ -12055,14 +12055,14 @@ static int perf_copy_attr(struct perf_event_attr __user *uattr,
+ 	if (size < PERF_ATTR_SIZE_VER0 || size > PAGE_SIZE)
+ 		goto err_size;
+ 
+-	ret = copy_struct_from_user(attr, sizeof(*attr), uattr, size);
++	ret = copy_struct_from_user(attr, sizeof(*attr), uattr, size); // bj: USER_2F... FP because we taint the _entire_ attr object, rather than just attr.size
+ 	if (ret) {
+ 		if (ret == -E2BIG)
+ 			goto err_size;
+ 		return ret;
+ 	}
+ 
+-	attr->size = size;
++	attr->size = size; // bj: Mitigates the USER_2F...
+ 
+ 	if (attr->__reserved_1 || attr->__reserved_2 || attr->__reserved_3)
+ 		return -EINVAL;
+@@ -12356,7 +12356,7 @@ SYSCALL_DEFINE5(perf_event_open,
+ 	if (flags & ~PERF_FLAG_ALL)
+ 		return -EINVAL;
+ 
+-	err = perf_copy_attr(attr_uptr, &attr);
++	err = perf_copy_attr(attr_uptr, &attr); // bj: --> USER_1F, USER_2F
+ 	if (err)
+ 		return err;
+ 
+@@ -12656,7 +12656,7 @@ SYSCALL_DEFINE5(perf_event_open,
+ 			sibling->pmu_ctx = pmu_ctx;
+ 			get_pmu_ctx(pmu_ctx);
+ 			perf_event__state_init(sibling);
+-			perf_install_in_context(ctx, sibling, sibling->cpu);
++			perf_install_in_context(ctx, sibling, sibling->cpu); // bj: --> VULN_STORE?
+ 		}
+ 
+ 		/*
+@@ -12667,7 +12667,7 @@ SYSCALL_DEFINE5(perf_event_open,
+ 		group_leader->pmu_ctx = pmu_ctx;
+ 		get_pmu_ctx(pmu_ctx);
+ 		perf_event__state_init(group_leader);
+-		perf_install_in_context(ctx, group_leader, group_leader->cpu);
++		perf_install_in_context(ctx, group_leader, group_leader->cpu); // bj: --> VULN_STORE?
+ 	}
+ 
+ 	/*
+@@ -12681,7 +12681,7 @@ SYSCALL_DEFINE5(perf_event_open,
+ 
+ 	event->owner = current;
+ 
+-	perf_install_in_context(ctx, event, event->cpu);
++	perf_install_in_context(ctx, event, event->cpu); // bj: --> VULN_STORE?
+ 	perf_unpin_context(ctx);
+ 
+ 	mutex_unlock(&ctx->mutex);
+diff --git a/kernel/time/timekeeping.c b/kernel/time/timekeeping.c
+index 266d02809dbb..9d39bffa4034 100644
+--- a/kernel/time/timekeeping.c
++++ b/kernel/time/timekeeping.c
+@@ -2162,7 +2162,7 @@ static bool timekeeping_advance(enum timekeeping_adv_mode mode)
+ 	if (unlikely(timekeeping_suspended))
+ 		goto out;
+ 
+-	offset = clocksource_delta(tk_clock_read(&tk->tkr_mono),
++	offset = clocksource_delta(tk_clock_read(&tk->tkr_mono), /* --> MMIO_2F */
+ 				   tk->tkr_mono.cycle_last, tk->tkr_mono.mask);
+ 
+ 	/* Check if there's really nothing to do */
+@@ -2185,7 +2185,7 @@ static bool timekeeping_advance(enum timekeeping_adv_mode mode)
+ 	/* Bound shift to one less than what overflows tick_length */
+ 	maxshift = (64 - (ilog2(ntp_tick_length())+1)) - 1;
+ 	shift = min(shift, maxshift);
+-	while (offset >= tk->cycle_interval) {
++	while (offset >= tk->cycle_interval) { // VULN_COND
+ 		offset = logarithmic_accumulation(tk, offset, shift,
+ 							&clock_set);
+ 		if (offset < tk->cycle_interval<<shift)
+diff --git a/kernel/trace/blktrace.c b/kernel/trace/blktrace.c
+index d5d94510afd3..31a68472c820 100644
+--- a/kernel/trace/blktrace.c
++++ b/kernel/trace/blktrace.c
+@@ -585,8 +585,8 @@ static int do_blk_trace_setup(struct request_queue *q, char *name, dev_t dev,
+ 	INIT_LIST_HEAD(&bt->running_list);
+ 
+ 	ret = -EIO;
+-	debugfs_create_file("dropped", 0444, dir, bt, &blk_dropped_fops);
+-	debugfs_create_file("msg", 0222, dir, bt, &blk_msg_fops);
++	debugfs_create_file("dropped", 0444, dir, bt, &blk_dropped_fops); /* --> USER_1F */
++	debugfs_create_file("msg", 0222, dir, bt, &blk_msg_fops); /* --> USER_2F */
+ 
+ 	bt->rchan = relay_open("trace", dir, buts->buf_size,
+ 				buts->buf_nr, &blk_relay_callbacks, bt);
+diff --git a/mm/dmapool.c b/mm/dmapool.c
+index a151a21e571b..94ebd0048a0a 100644
+--- a/mm/dmapool.c
++++ b/mm/dmapool.c
+@@ -183,7 +183,7 @@ static struct dma_block *pool_block_pop(struct dma_pool *pool)
+ 	struct dma_block *block = pool->next_block;
+ 
+ 	if (block) {
+-		pool->next_block = block->next_block;
++		pool->next_block = block->next_block; // --> DMA_2F (LOAD) - a,c
+ 		pool->nr_active++;
+ 	}
+ 	return block;
+@@ -311,11 +311,11 @@ static void pool_initialise_page(struct dma_pool *pool, struct dma_page *page)
+ 		}
+ 
+ 		block = page->vaddr + offset;
+-		block->dma = page->dma + offset;
+-		block->next_block = NULL;
++		block->dma = page->dma + offset; // DMA_1F (STORE) - b
++		block->next_block = NULL; // DMA_1F (STORE) - a
+ 
+ 		if (last)
+-			last->next_block = block;
++			last->next_block = block; // DMA_1F (STORE) - c
+ 		else
+ 			first = block;
+ 		last = block;
+@@ -331,6 +331,7 @@ static void pool_initialise_page(struct dma_pool *pool, struct dma_page *page)
+ 	pool->nr_pages++;
+ }
+ 
++
+ static struct dma_page *pool_alloc_page(struct dma_pool *pool, gfp_t mem_flags)
+ {
+ 	struct dma_page *page;
+@@ -411,7 +412,7 @@ void *dma_pool_alloc(struct dma_pool *pool, gfp_t mem_flags,
+ 	might_alloc(mem_flags);
+ 
+ 	spin_lock_irqsave(&pool->lock, flags);
+-	block = pool_block_pop(pool);
++	block = pool_block_pop(pool); // --> DMA_2F (LOAD) - a
+ 	if (!block) {
+ 		/*
+ 		 * pool_alloc_page() might sleep, so temporarily drop
+@@ -419,17 +420,17 @@ void *dma_pool_alloc(struct dma_pool *pool, gfp_t mem_flags,
+ 		 */
+ 		spin_unlock_irqrestore(&pool->lock, flags);
+ 
+-		page = pool_alloc_page(pool, mem_flags & (~__GFP_ZERO));
++		page = pool_alloc_page(pool, mem_flags & (~__GFP_ZERO)); // DMA alloc
+ 		if (!page)
+ 			return NULL;
+ 
+ 		spin_lock_irqsave(&pool->lock, flags);
+-		pool_initialise_page(pool, page);
+-		block = pool_block_pop(pool);
++		pool_initialise_page(pool, page); // --> DMA_1F (STORE) - a,b
++		block = pool_block_pop(pool); // --> DMA_2F (LOAD) - a,c
+ 	}
+ 	spin_unlock_irqrestore(&pool->lock, flags);
+ 
+-	*handle = block->dma;
++	*handle = block->dma; // DMA_2F (LOAD) - b
+ 	pool_check_block(pool, block, mem_flags);
+ 	if (want_init_on_alloc(mem_flags))
+ 		memset(block, 0, pool->size);
+diff --git a/mm/memfd.c b/mm/memfd.c
+index 2dba2cb6f0d0..60c51f7c2755 100644
+--- a/mm/memfd.c
++++ b/mm/memfd.c
+@@ -326,7 +326,7 @@ SYSCALL_DEFINE2(memfd_create,
+ 		return error;
+ 
+ 	/* length includes terminating zero */
+-	len = strnlen_user(uname, MFD_NAME_MAX_LEN + 1);
++	len = strnlen_user(uname, MFD_NAME_MAX_LEN + 1); // USER_1F?
+ 	if (len <= 0)
+ 		return -EFAULT;
+ 	if (len > MFD_NAME_MAX_LEN + 1)
+@@ -337,7 +337,7 @@ SYSCALL_DEFINE2(memfd_create,
+ 		return -ENOMEM;
+ 
+ 	strcpy(name, MFD_NAME_PREFIX);
+-	if (copy_from_user(&name[MFD_NAME_PREFIX_LEN], uname, len)) {
++	if (copy_from_user(&name[MFD_NAME_PREFIX_LEN], uname, len)) {  /* USER_2F? */
+ 		error = -EFAULT;
+ 		goto err_name;
+ 	}
+@@ -360,7 +360,7 @@ SYSCALL_DEFINE2(memfd_create,
+ 					(flags >> MFD_HUGE_SHIFT) &
+ 					MFD_HUGE_MASK);
+ 	} else
+-		file = shmem_file_setup(name, 0, VM_NORESERVE);
++		file = shmem_file_setup(name, 0, VM_NORESERVE); // -- VULN_COND
+ 	if (IS_ERR(file)) {
+ 		error = PTR_ERR(file);
+ 		goto err_fd;
+diff --git a/mm/util.c b/mm/util.c
+index 406634f26918..c2f368aae7bf 100644
+--- a/mm/util.c
++++ b/mm/util.c
+@@ -245,7 +245,7 @@ char *strndup_user(const char __user *s, long n)
+ 	char *p;
+ 	long length;
+ 
+-	length = strnlen_user(s, n);
++	length = strnlen_user(s, n); // --> USER_1F:GETUSER
+ 
+ 	if (!length)
+ 		return ERR_PTR(-EFAULT);
+@@ -253,7 +253,7 @@ char *strndup_user(const char __user *s, long n)
+ 	if (length > n)
+ 		return ERR_PTR(-EINVAL);
+ 
+-	p = memdup_user(s, length);
++	p = memdup_user(s, length); // --> USER_2F:GETUSER... mitigated though bc it uses the previously loaded length
+ 
+ 	if (IS_ERR(p))
+ 		return p;
+diff --git a/net/core/sock.c b/net/core/sock.c
+index eef27812013a..1365588f8bb5 100644
+--- a/net/core/sock.c
++++ b/net/core/sock.c
+@@ -1113,7 +1113,7 @@ int sk_setsockopt(struct sock *sk, int level, int optname,
+ 	if (optlen < sizeof(int))
+ 		return -EINVAL;
+ 
+-	if (copy_from_sockptr(&val, optval, sizeof(val)))
++	if (copy_from_sockptr(&val, optval, sizeof(val))) // bj: USER_1F:GETUSER... although, seems like it doesn't actually use val before the USER_2F, so not a true double-fetch :(
+ 		return -EFAULT;
+ 
+ 	valbool = val ? 1 : 0;
+@@ -1307,9 +1307,9 @@ int sk_setsockopt(struct sock *sk, int level, int optname,
+ 	case SO_ATTACH_FILTER: {
+ 		struct sock_fprog fprog;
+ 
+-		ret = copy_bpf_fprog_from_user(&fprog, optval, optlen);
++		ret = copy_bpf_fprog_from_user(&fprog, optval, optlen); // bj: USER_2F:GETUSER
+ 		if (!ret)
+-			ret = sk_attach_filter(&fprog, sk);
++			ret = sk_attach_filter(&fprog, sk); // bj: --> kernel/bpf/core.c --> mm/vmalloc.c -- VULN_COND:BUG?
+ 		break;
+ 	}
+ 	case SO_ATTACH_BPF:
+diff --git a/net/ipv4/ip_sockglue.c b/net/ipv4/ip_sockglue.c
+index d7006942fc2f..8998bed117c3 100644
+--- a/net/ipv4/ip_sockglue.c
++++ b/net/ipv4/ip_sockglue.c
+@@ -1561,7 +1561,7 @@ int do_ip_getsockopt(struct sock *sk, int level, int optname,
+ 	if (ip_mroute_opt(optname))
+ 		return ip_mroute_getsockopt(sk, optname, optval, optlen);
+ 
+-	if (copy_from_sockptr(&len, optlen, sizeof(int)))
++	if (copy_from_sockptr(&len, optlen, sizeof(int))) // USER_1F:GETUSER... Not sure where USER_2F:GETUSER is, but apparently it's in this func?
+ 		return -EFAULT;
+ 	if (len < 0)
+ 		return -EINVAL;
+diff --git a/net/ipv6/ipv6_sockglue.c b/net/ipv6/ipv6_sockglue.c
+index ae818ff46224..3549b2274166 100644
+--- a/net/ipv6/ipv6_sockglue.c
++++ b/net/ipv6/ipv6_sockglue.c
+@@ -1014,7 +1014,7 @@ int ipv6_setsockopt(struct sock *sk, int level, int optname, sockptr_t optval,
+ 	/* we need to exclude all possible ENOPROTOOPTs except default case */
+ 	if (err == -ENOPROTOOPT && optname != IPV6_IPSEC_POLICY &&
+ 			optname != IPV6_XFRM_POLICY)
+-		err = nf_setsockopt(sk, PF_INET6, optname, optval, optlen);
++		err = nf_setsockopt(sk, PF_INET6, optname, optval, optlen); /* bj: USER_2F:GETUSER, VULN_STORE */
+ #endif
+ 	return err;
+ }
+diff --git a/net/ipv6/netfilter/ip6_tables.c b/net/ipv6/netfilter/ip6_tables.c
+index fd9f049d6d41..17d6954828e4 100644
+--- a/net/ipv6/netfilter/ip6_tables.c
++++ b/net/ipv6/netfilter/ip6_tables.c
+@@ -1125,7 +1125,7 @@ do_replace(struct net *net, sockptr_t arg, unsigned int len)
+ 	void *loc_cpu_entry;
+ 	struct ip6t_entry *iter;
+ 
+-	if (copy_from_sockptr(&tmp, arg, sizeof(tmp)) != 0)
++	if (copy_from_sockptr(&tmp, arg, sizeof(tmp)) != 0) /* bj: USER_2F */
+ 		return -EFAULT;
+ 
+ 	/* overflow check */
+@@ -1151,7 +1151,7 @@ do_replace(struct net *net, sockptr_t arg, unsigned int len)
+ 	if (ret != 0)
+ 		goto free_newinfo;
+ 
+-	ret = __do_replace(net, tmp.name, tmp.valid_hooks, newinfo,
++	ret = __do_replace(net, tmp.name, tmp.valid_hooks, newinfo, /* bj: VULN_STORE */
+ 			   tmp.num_counters, tmp.counters);
+ 	if (ret)
+ 		goto free_newinfo_untrans;
+diff --git a/security/keys/keyctl.c b/security/keys/keyctl.c
+index 19be69fa4d05..6dcdf116bde7 100644
+--- a/security/keys/keyctl.c
++++ b/security/keys/keyctl.c
+@@ -87,13 +87,13 @@ SYSCALL_DEFINE5(add_key, const char __user *, _type,
+ 		goto error;
+ 
+ 	/* draw all the data into kernel space */
+-	ret = key_get_type_from_user(type, _type, sizeof(type));
++	ret = key_get_type_from_user(type, _type, sizeof(type)); // --> USER_1F?
+ 	if (ret < 0)
+ 		goto error;
+ 
+ 	description = NULL;
+ 	if (_description) {
+-		description = strndup_user(_description, KEY_MAX_DESC_SIZE);
++		description = strndup_user(_description, KEY_MAX_DESC_SIZE); /// --> USER_2F?
+ 		if (IS_ERR(description)) {
+ 			ret = PTR_ERR(description);
+ 			goto error;
+diff --git a/sound/core/pcm_lib.c b/sound/core/pcm_lib.c
+index 9c121a921b04..2737337136d0 100644
+--- a/sound/core/pcm_lib.c
++++ b/sound/core/pcm_lib.c
+@@ -301,7 +301,7 @@ static int snd_pcm_update_hw_ptr0(struct snd_pcm_substream *substream,
+ 	 * The values are stored at the end of this routine after
+ 	 * corrections for hw_ptr position
+ 	 */
+-	pos = substream->ops->pointer(substream);
++	pos = substream->ops->pointer(substream); /* bj: pos is attacker-controllable (from azx_pcm_pointer())*/
+ 	curr_jiffies = jiffies;
+ 	if (runtime->tstamp_mode == SNDRV_PCM_TSTAMP_ENABLE) {
+ 		if ((substream->ops->get_time_info) &&
+@@ -322,7 +322,7 @@ static int snd_pcm_update_hw_ptr0(struct snd_pcm_substream *substream,
+ 		__snd_pcm_xrun(substream);
+ 		return -EPIPE;
+ 	}
+-	if (pos >= runtime->buffer_size) {
++	if (pos >= runtime->buffer_size) { /* bj: mitigates a large pos :( */
+ 		if (printk_ratelimit()) {
+ 			char name[16];
+ 			snd_pcm_debug_name(substream, name, sizeof(name));
+@@ -2063,7 +2063,7 @@ static int interleaved_copy(struct snd_pcm_substream *substream,
+ 	hwoff = frames_to_bytes(runtime, hwoff);
+ 	off = frames_to_bytes(runtime, off);
+ 	frames = frames_to_bytes(runtime, frames);
+-	return transfer(substream, 0, hwoff, data + off, frames);
++	return transfer(substream, 0, hwoff, data + off, frames); // BJ: data+off tainted?
+ }
+ 
+ /* call transfer function with the converted pointers and sizes for each
+@@ -2252,7 +2252,7 @@ snd_pcm_sframes_t __snd_pcm_lib_xfer(struct snd_pcm_substream *substream,
+ 
+ 	runtime->twake = runtime->control->avail_min ? : 1;
+ 	if (runtime->state == SNDRV_PCM_STATE_RUNNING)
+-		snd_pcm_update_hw_ptr(substream);
++		snd_pcm_update_hw_ptr(substream); /* bj: --> DMA_2F (but seems mitigated...) */
+ 
+ 	/*
+ 	 * If size < start_threshold, wait indefinitely. Another
+@@ -2306,7 +2306,7 @@ snd_pcm_sframes_t __snd_pcm_lib_xfer(struct snd_pcm_substream *substream,
+ 		snd_pcm_stream_unlock_irq(substream);
+ 		if (!is_playback)
+ 			snd_pcm_dma_buffer_sync(substream, SNDRV_DMA_SYNC_CPU);
+-		err = writer(substream, appl_ofs, data, offset, frames,
++		err = writer(substream, appl_ofs, data, offset, frames, /* bj: --> VULN_STORE (but seems the DMA_2F is mitigated...) */
+ 			     transfer);
+ 		if (is_playback)
+ 			snd_pcm_dma_buffer_sync(substream, SNDRV_DMA_SYNC_DEVICE);
+diff --git a/sound/core/pcm_native.c b/sound/core/pcm_native.c
+index 95fc56e403b1..27a7d396e1f2 100644
+--- a/sound/core/pcm_native.c
++++ b/sound/core/pcm_native.c
+@@ -3215,9 +3215,9 @@ static int snd_pcm_xferi_frames_ioctl(struct snd_pcm_substream *substream,
+ 	if (copy_from_user(&xferi, _xferi, sizeof(xferi)))
+ 		return -EFAULT;
+ 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+-		result = snd_pcm_lib_write(substream, xferi.buf, xferi.frames);
++		result = snd_pcm_lib_write(substream, xferi.buf, xferi.frames); // bj: --> DMA_2F?
+ 	else
+-		result = snd_pcm_lib_read(substream, xferi.buf, xferi.frames);
++		result = snd_pcm_lib_read(substream, xferi.buf, xferi.frames); // bj: --> DMA_2F?
+ 	if (put_user(result, &_xferi->result))
+ 		return -EFAULT;
+ 	return result < 0 ? result : 0;
+diff --git a/sound/pci/hda/hda_controller.c b/sound/pci/hda/hda_controller.c
+index 406779625fb5..4b2c07a95fd1 100644
+--- a/sound/pci/hda/hda_controller.c
++++ b/sound/pci/hda/hda_controller.c
+@@ -298,7 +298,7 @@ unsigned int azx_get_position(struct azx *chip,
+ 	if (chip->get_position[stream])
+ 		pos = chip->get_position[stream](chip, azx_dev);
+ 	else /* use the position buffer as default */
+-		pos = azx_get_pos_posbuf(chip, azx_dev);
++		pos = azx_get_pos_posbuf(chip, azx_dev); /* bj: pos assigned from a DMA_2F ==> attacker-controllable */
+ 
+ 	if (pos >= azx_dev->core.bufsize)
+ 		pos = 0;
+@@ -316,7 +316,7 @@ unsigned int azx_get_position(struct azx *chip,
+ 	}
+ 
+ 	trace_azx_get_position(chip, azx_dev, pos, delay);
+-	return pos;
++	return pos; /* bj: ret val is attacker-controllable */
+ }
+ EXPORT_SYMBOL_GPL(azx_get_position);
+ 
+@@ -326,7 +326,7 @@ static snd_pcm_uframes_t azx_pcm_pointer(struct snd_pcm_substream *substream)
+ 	struct azx *chip = apcm->chip;
+ 	struct azx_dev *azx_dev = get_azx_dev(substream);
+ 	return bytes_to_frames(substream->runtime,
+-			       azx_get_position(chip, azx_dev));
++			       azx_get_position(chip, azx_dev)); /* bj: ret val is attacker-controllable */
+ }
+ 
+ /*
+diff --git a/sound/pci/hda/hda_intel.c b/sound/pci/hda/hda_intel.c
+index 5cfd009175da..66421e6b92d5 100644
+--- a/sound/pci/hda/hda_intel.c
++++ b/sound/pci/hda/hda_intel.c
+@@ -669,7 +669,7 @@ static int azx_position_ok(struct azx *chip, struct azx_dev *azx_dev)
+ 	if (chip->get_position[stream])
+ 		pos = chip->get_position[stream](chip, azx_dev);
+ 	else { /* use the position buffer as default */
+-		pos = azx_get_pos_posbuf(chip, azx_dev);
++		pos = azx_get_pos_posbuf(chip, azx_dev); // DMA_2F?
+ 		if (!pos || pos == (u32)-1) {
+ 			dev_info(chip->card->dev,
+ 				 "Invalid position buffer, using LPIB read method instead.\n");

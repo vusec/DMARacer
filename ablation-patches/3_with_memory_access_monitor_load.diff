@@ -1,0 +1,13 @@
+diff --git a/mm/kdfsan/kdfsan_policies.c b/mm/kdfsan/kdfsan_policies.c
+index 2e1868500e28..6baf23a93211 100644
+--- a/mm/kdfsan/kdfsan_policies.c
++++ b/mm/kdfsan/kdfsan_policies.c
+@@ -218,6 +218,8 @@ static kdf_report_to_label_t df_labels[NUM_LABELS] = {0}; // df_labels[count] --
+ static atomic_t df_label_count = ATOMIC_INIT(0);
+ 
+ static dfsan_label kdf_get_df_label(int report_id) {
++  return 0;
++
+   // Check if we already have a created_label saved for this report_id. If so, return that.
+   int cnt = atomic_read(&df_label_count);
+   for (int i = 0; i < cnt; i++) {
