@@ -111,6 +111,7 @@ def start():
     args += ["--cap-add=SYS_PTRACE"]
     args += ["--cap-add=CAP_SYS_ADMIN"]
     args += ["--cap-add=SYS_ADMIN"]
+    args += ["--cap-add=MKNOD"]
     args += ["--privileged"]
     args += ["--device", "/dev/loop-control"]
     args += ["--security-opt", "seccomp=unconfined"]

@@ -108,7 +108,7 @@ tasks:
     desc: run basic tests to ensure everything is working
     cmds:
       - cd {{.REPORTS}}/out && rm -f test.out test.json
-      - python3 scripts/expect/qemu.py --target qemu --whitelist t --tests |& tee {{.REPORTS}}/out/test.out
+      - python3 scripts/expect/qemu.py --target syzkaller --whitelist t --tests |& tee {{.REPORTS}}/out/test.out
 
   test-early:
     desc: run basic tests during early boot
