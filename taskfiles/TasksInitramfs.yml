@@ -4,6 +4,7 @@ tasks:
   create:
     desc: create initramfs
     cmds:
+      - mkdir -p out/
       - rsync -r busybox/busybox-1.33.0/ out/busybox-1.33.0/
       - task initramfs:busybox
       - task initramfs:initramfs
