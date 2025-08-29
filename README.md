@@ -26,10 +26,9 @@ This evaluation will take up to 24 hours of runtime.
 
 ## Non-Docker Setup ##
 
-*This section describes the non-docker setup.*
-
+*This section describes the non-docker setup.
 You should prefer using the docker container, but if that is not possible,
-then the steps below describe the manual setup of DMARacer.
+then the steps below describe the manual setup of DMARacer.*
 
 To download and install dependencies, including
 [go-task](https://taskfile.dev/#/installation) as a task-runner, from the repository, run: `sudo snap install task --classic && task init`.
@@ -49,7 +48,7 @@ individual steps below instead:
 
 5. configure and build a [KDFSAN-instrumented kernel](https://github.com/vusec/DMARacer-Linux), run: `task kernel:config kernel:build`.
 
-### Basic Test ###
+## Basic Test ###
 
 To test that the instrumented kernel runs correctly, run: `task qemu:test`.
 This will: (i) boot the kernel, (ii) enable KDFSAN, (iii) run basic tainting tests, and (iv) run taint policy-specific tests.
@@ -57,7 +56,51 @@ This will: (i) boot the kernel, (ii) enable KDFSAN, (iii) run basic tainting tes
 For the basic tainting tests, the kernel will panic if a test fails.
 For the taint policy-specific tests, manually check in the log that the output matches the expected output (e.g., check that the correct number of reports are printed, if applicable).
 
-Next, to parse the reports into a database and examine them, run: `task reports:load-test`. Finally, to examine the reports, run: `task reports:inspect`.
+## Fuzzing ##
+
+Run `task qemu:fuzz-all` to fuzz all devices with QEMU.
+
+## Report Viewer
+
+Run `task reports:load-current` to parse the results of the fuzzing campaign.
+To examine the resulting reports, run: `task reports:inspect`.
+
+A TUI will open and show one of the vulnerable operations that
+has been found. You can navigate to other reports using the command shown
+at the bottom of the TUI.
+
+In the example below, the found operation is a store of size 4 that was
+created by the source code found at `libata-sff.c:2533`. The
+metadata referencing report IDs describes whether this operation belong
+to the same trace as other operations.
+The backtrace of this specific store instruction is shown at the
+bottom of the TUI.
+
+```
+========================================================
+Report 13 of 7525...
+====================================
+Tested device: e1000_82545em
+Fuzzing run: 7643539515351078876
+Access: {addr: 0xffff88800d800004, data_label: 0, ptr_label: 0, size: 4}
+Region: {dev_id: 0, region_addr: 0xd800000, cpu_addr: 0xffff88800d800000, s: 2048}
+Instruction type: STORE
+Report type: DMA_1F
+Report ID: 0
+Previous report IDs:          []
+Previous DMA-LOAD report IDs: []
+Next report IDs:              [1]
+Next VULN report IDs:         []
+RIP: dfs$ata_bmdma_qc_prep+0x3ea/0x510
+File: drivers/ata/libata-sff.c
+Line:
+ /home/dmaracer/mnt/kdfsan-df-linux/drivers/ata/libata-sff.c:2533:22 -- ata_bmdma_fill_sg
+ /home/dmaracer/mnt/kdfsan-df-linux/drivers/ata/libata-sff.c:2617:2  --     (inlined by) dfs$ata_bmdma_qc_prep
+Backtrace:
+ 21. /home/dmaracer/mnt/kdfsan-df-linux/drivers/ata/libata-sff.c:2533:22  -- ata_bmdma_fill_sg
+ 20. /home/dmaracer/mnt/kdfsan-df-linux/drivers/ata/libata-sff.c:2617:2   --     (inlined by) dfs$ata_bmdma_qc_prep
+ [...]
+```
 
 ## Running ##
 
